@@ -116,6 +116,20 @@ alias c="docker compose"
 alias n=nvim
 alias avante='nvim -c "lua vim.defer_fn(function()require(\"avante.api\").zen_mode()end, 100)"'
 
+# brew wrappers — install/uninstall and keep Brewfile in sync automatically
+function brew() {
+  command brew "$@"
+  local exit_code=$?
+  if [[ "$1" == "install" || "$1" == "uninstall" || "$1" == "tap" || "$1" == "untap" ]]; then
+    command brew bundle dump --force --file="$(chezmoi source-path)/bootstrap/Brewfile" &>/dev/null \
+      && git -C "$(chezmoi source-path)" add bootstrap/Brewfile \
+      && git -C "$(chezmoi source-path)" diff --cached --quiet \
+      || git -C "$(chezmoi source-path)" commit -m "brew $*" --quiet \
+      && git -C "$(chezmoi source-path)" push --quiet &
+  fi
+  return $exit_code
+}
+
 # git alias
 # clean local branches
 function gclean() {
