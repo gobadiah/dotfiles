@@ -117,15 +117,20 @@ alias n=nvim
 alias avante='nvim -c "lua vim.defer_fn(function()require(\"avante.api\").zen_mode()end, 100)"'
 
 # brew wrappers — install/uninstall and keep Brewfile in sync automatically
+function _brew_sync() {
+  local src="$(chezmoi source-path)" action="$*"
+  command brew bundle dump --force --file="$src/bootstrap/Brewfile" || return
+  git -C "$src" add bootstrap/Brewfile || return
+  git -C "$src" diff --cached --quiet && return
+  git -C "$src" commit -m "brew $action" || return
+  git -C "$src" push
+}
+
 function brew() {
   command brew "$@"
   local exit_code=$?
-  if [[ "$1" == "install" || "$1" == "uninstall" || "$1" == "tap" || "$1" == "untap" ]]; then
-    command brew bundle dump --force --file="$(chezmoi source-path)/bootstrap/Brewfile" &>/dev/null \
-      && git -C "$(chezmoi source-path)" add bootstrap/Brewfile \
-      && git -C "$(chezmoi source-path)" diff --cached --quiet \
-      || git -C "$(chezmoi source-path)" commit -m "brew $*" --quiet \
-      && git -C "$(chezmoi source-path)" push --quiet &
+  if [[ "$1" =~ ^(install|uninstall|tap|untap)$ ]]; then
+    _brew_sync "$@" &>/dev/null &!
   fi
   return $exit_code
 }
