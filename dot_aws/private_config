@@ -1,0 +1,5 @@
+[default]
+region = eu-west-3
+output = json
+[profile gobadiah-route53]
+region = eu-west-3
