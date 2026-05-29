@@ -1,0 +1,16 @@
+# This is Git's per-user configuration file.
+[user]
+	name = Michaël Journo
+	email = gobadiah@gmail.com
+	signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJpGM/xTUJLMAZ0r+FkASLENVcHGUtXp7dTvnJxx6rxy
+# Please adapt and uncomment the following lines:
+#	name = Michaël Journo
+#	email = gobadiah@gmail.com
+[pull]
+	rebase = false
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+[commit]
+	gpgsign = true
