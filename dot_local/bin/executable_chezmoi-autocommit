@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CHEZMOI_DIR="${CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}"
+
+# No-op if clean
+if git -C "$CHEZMOI_DIR" status --porcelain | grep -q .; then
+  : # dirty, continue
+else
+  exit 0
+fi
+
+# Stage everything
+git -C "$CHEZMOI_DIR" add -A
+
+# Get the staged diff for the commit message
+DIFF=$(git -C "$CHEZMOI_DIR" diff --cached --stat && echo "---" && git -C "$CHEZMOI_DIR" diff --cached)
+
+PROMPT="Write a concise git commit message for these chezmoi dotfiles changes.
+Output ONLY the commit message — one line, imperative mood, no period, no quotes, no explanation.
+
+$DIFF"
+
+MESSAGE=$(printf '%s' "$PROMPT" | "$HOME/.local/bin/claude" -p --output-format text 2>/dev/null)
+
+if [[ -z "$MESSAGE" ]]; then
+  echo "chezmoi-autocommit: claude returned empty message, aborting" >&2
+  git -C "$CHEZMOI_DIR" reset HEAD 2>/dev/null || true
+  exit 1
+fi
+
+git -C "$CHEZMOI_DIR" commit -m "$MESSAGE"
+echo "chezmoi-autocommit: committed — $MESSAGE"
