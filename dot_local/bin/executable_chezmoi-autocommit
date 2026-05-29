@@ -30,4 +30,5 @@ if [[ -z "$MESSAGE" ]]; then
 fi
 
 git -C "$CHEZMOI_DIR" commit -m "$MESSAGE"
+git push
 echo "chezmoi-autocommit: committed — $MESSAGE"
