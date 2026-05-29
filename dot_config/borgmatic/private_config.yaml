@@ -30,6 +30,7 @@ source_directories:
   - /Users/michaeljourno/.viminfo
   - /Users/michaeljourno/scripts
   - /Users/michaeljourno/syride
+  - /Users/michaeljourno/.syride
 
   # Where I do work
   - /Users/michaeljourno/workspace

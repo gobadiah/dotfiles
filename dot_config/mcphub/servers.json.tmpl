@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "github": {
+      "disabled": false,
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      },
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "postgres": {
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "${POSTGRESQL_URL}"
+      ],
+      "command": "npx",
+      "custom_instructions": {
+        "text": "Use the trading database by default is none is provided"
+      },
+      "disabled": false
+    },
+    "sentry": {
+      "url": "https://mcp.sentry.dev/mcp"
+    },
+    "trello": {
+      "command": "npx",
+      "args": [
+        "mcp-server-trello"
+      ],
+      "env": {
+        "TRELLO_API_KEY": "{{ onepasswordRead "op://Personal/Dotfiles/TRELLO_API_KEY" }}",
+        "TRELLO_TOKEN": "{{ onepasswordRead "op://Personal/Dotfiles/TRELLO_TOKEN" }}"
+      }
+    }
+  }
+}
