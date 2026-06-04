@@ -11,32 +11,31 @@
 # List of source directories and files to back up. Globs and tildes
 # are expanded. Do not backslash spaces in path names.
 source_directories:
-  - /Users/michaeljourno/.ssh
-  - /Users/michaeljourno/.config
-  - /Users/michaeljourno/.aws
-  - /Users/michaeljourno/.kube
-  - /Users/michaeljourno/.gnupg
-  - /Users/michaeljourno/.zshrc
-  - /Users/michaeljourno/.zprofile
-  - /Users/michaeljourno/.zshenv
-  - /Users/michaeljourno/.p10k.zsh
-  - /Users/michaeljourno/.gitconfig
-  - /Users/michaeljourno/.netrc
-  - /Users/michaeljourno/.zsh_history
-  - /Users/michaeljourno/.bash_history
-  - /Users/michaeljourno/.psql_history
-  - /Users/michaeljourno/.python_history
-  - /Users/michaeljourno/.oh-my-zsh
-  - /Users/michaeljourno/.viminfo
-  - /Users/michaeljourno/scripts
-  - /Users/michaeljourno/syride
-  - /Users/michaeljourno/.syride
+  - {{ .chezmoi.homeDir }}/.ssh
+  - {{ .chezmoi.homeDir }}/.config
+  - {{ .chezmoi.homeDir }}/.aws
+  - {{ .chezmoi.homeDir }}/.kube
+  - {{ .chezmoi.homeDir }}/.gnupg
+  - {{ .chezmoi.homeDir }}/.zshrc
+  - {{ .chezmoi.homeDir }}/.zprofile
+  - {{ .chezmoi.homeDir }}/.zshenv
+  - {{ .chezmoi.homeDir }}/.p10k.zsh
+  - {{ .chezmoi.homeDir }}/.gitconfig
+  - {{ .chezmoi.homeDir }}/.zsh_history
+  - {{ .chezmoi.homeDir }}/.bash_history
+  - {{ .chezmoi.homeDir }}/.psql_history
+  - {{ .chezmoi.homeDir }}/.python_history
+  - {{ .chezmoi.homeDir }}/.oh-my-zsh
+  - {{ .chezmoi.homeDir }}/.viminfo
+  - {{ .chezmoi.homeDir }}/scripts
+  - {{ .chezmoi.homeDir }}/syride
+  - {{ .chezmoi.homeDir }}/.syride
 
   # Where I do work
-  - /Users/michaeljourno/workspace
+  - {{ .chezmoi.homeDir }}/workspace
 
   # Downloads
-  - /Users/michaeljourno/Downloads
+  - {{ .chezmoi.homeDir }}/Downloads
 
 # When true, source directories (and root pattern paths) must exist
 # before a backup begins. If they don't, borgmatic errors. Defaults to
@@ -160,41 +159,41 @@ repositories:
 # unable to rewrite patterns as needed.
 # patterns:
 #   # Big regenerable junk
-#   - "- /Users/michaeljourno/.Trash"
-#   - "- /Users/michaeljourno/.cache"
-#   - "- /Users/michaeljourno/.docker"
-#   - "- /Users/michaeljourno/.npm"
-#   - "- /Users/michaeljourno/.cargo"
-#   - "- /Users/michaeljourno/.rustup"
-#   - "- /Users/michaeljourno/.gradle"
-#   - "- /Users/michaeljourno/.m2/repository"
-#   - "- /Users/michaeljourno/.gem"
-#   - "- /Users/michaeljourno/.berkshelf"
-#   - "- /Users/michaeljourno/.cocoapods"
-#   - "- /Users/michaeljourno/.pyenv/versions"
-#   - "- /Users/michaeljourno/.rbenv/versions"
-#   - "- /Users/michaeljourno/.vagrant.d/boxes"
-#   - "- /Users/michaeljourno/.terraform.d/plugins"
-#   - "- /Users/michaeljourno/.ollama/models"
-#   - "- /Users/michaeljourno/.expo"
+#   - "- {{ .chezmoi.homeDir }}/.Trash"
+#   - "- {{ .chezmoi.homeDir }}/.cache"
+#   - "- {{ .chezmoi.homeDir }}/.docker"
+#   - "- {{ .chezmoi.homeDir }}/.npm"
+#   - "- {{ .chezmoi.homeDir }}/.cargo"
+#   - "- {{ .chezmoi.homeDir }}/.rustup"
+#   - "- {{ .chezmoi.homeDir }}/.gradle"
+#   - "- {{ .chezmoi.homeDir }}/.m2/repository"
+#   - "- {{ .chezmoi.homeDir }}/.gem"
+#   - "- {{ .chezmoi.homeDir }}/.berkshelf"
+#   - "- {{ .chezmoi.homeDir }}/.cocoapods"
+#   - "- {{ .chezmoi.homeDir }}/.pyenv/versions"
+#   - "- {{ .chezmoi.homeDir }}/.rbenv/versions"
+#   - "- {{ .chezmoi.homeDir }}/.vagrant.d/boxes"
+#   - "- {{ .chezmoi.homeDir }}/.terraform.d/plugins"
+#   - "- {{ .chezmoi.homeDir }}/.ollama/models"
+#   - "- {{ .chezmoi.homeDir }}/.expo"
 #
 #   # Junky small stuff
-#   - "- /Users/michaeljourno/.DS_Store"
-#   - "- /Users/michaeljourno/.CFUserTextEncoding"
-#   - "- /Users/michaeljourno/.oracle_jre_usage"
-#   - "- /Users/michaeljourno/.zcompdump*"
-#   - "- /Users/michaeljourno/.zsh_sessions"
-#   - "- /Users/michaeljourno/.lesshst"
-#   - "- /Users/michaeljourno/.viminfo"
-#   - "- /Users/michaeljourno/.wget-hsts"
-#   - "- /Users/michaeljourno/.zshrc.bak"
-#   - "- /Users/michaeljourno/.dpl.larrypad-api.tgz"
+#   - "- {{ .chezmoi.homeDir }}/.DS_Store"
+#   - "- {{ .chezmoi.homeDir }}/.CFUserTextEncoding"
+#   - "- {{ .chezmoi.homeDir }}/.oracle_jre_usage"
+#   - "- {{ .chezmoi.homeDir }}/.zcompdump*"
+#   - "- {{ .chezmoi.homeDir }}/.zsh_sessions"
+#   - "- {{ .chezmoi.homeDir }}/.lesshst"
+#   - "- {{ .chezmoi.homeDir }}/.viminfo"
+#   - "- {{ .chezmoi.homeDir }}/.wget-hsts"
+#   - "- {{ .chezmoi.homeDir }}/.zshrc.bak"
+#   - "- {{ .chezmoi.homeDir }}/.dpl.larrypad-api.tgz"
 #
 #   # Include all dotfiles/dirs
-#   - "+ /Users/michaeljourno/.*"
+#   - "+ {{ .chezmoi.homeDir }}/.*"
 #
 #   # Exclude everything else (non-dotfile content in home)
-#   - "- /Users/michaeljourno/*"
+#   - "- {{ .chezmoi.homeDir }}/*"
 # - R /
 # - '- /home/*/.cache'
 # - + /home/susan
@@ -240,8 +239,8 @@ exclude_patterns:
 # Read exclude patterns from one or more separate named files, one
 # pattern per line. See the output of "borg help patterns" for more
 # details.
-# exclude_from:
-# - /etc/borgmatic/excludes
+exclude_from:
+  - {{ .chezmoi.homeDir }}/.config/borgmatic/excludes/video_files.txt
 
 # Exclude directories that contain a CACHEDIR.TAG file. See
 # http://www.brynosaurus.com/cachedir/spec.html for details. Defaults
