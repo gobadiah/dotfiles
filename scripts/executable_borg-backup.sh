@@ -45,6 +45,29 @@ fi
 # Reset the skipped counter
 rm -f "$HOME/Library/Logs/borg-backup-skipped-count"
 
+# 2b. Skip oversized Downloads files.
+# The CPL (powerline) link to the NAS can't sustain multi-GB uploads
+# without saturating and taking the internet down with it. Borg has no
+# size-based exclude, so we pre-scan Downloads and write the paths of any
+# files >= threshold into a borg exclude file (exact-path "pf:" prefix,
+# safe for names with spaces/globs). Regenerated every run.
+LARGE_EXCLUDE="$HOME/.config/borgmatic/excludes/large_files.txt"
+SIZE_THRESHOLD="${BORG_SKIP_LARGER_THAN:-500M}"   # override via env; find(1) units (M/G)
+: >"$LARGE_EXCLUDE"
+skipped_count=0
+skipped_list=""
+while IFS= read -r -d '' f; do
+  printf 'pf:%s\n' "$f" >>"$LARGE_EXCLUDE"
+  skipped_count=$((skipped_count + 1))
+  skipped_list="$skipped_list  $(du -h "$f" | cut -f1)  $(basename "$f")
+"
+done < <(find "$HOME/Downloads" -type f -size +"$SIZE_THRESHOLD" -print0 2>/dev/null)
+if [ "$skipped_count" -gt 0 ]; then
+  echo "Skipping $skipped_count Downloads file(s) >= $SIZE_THRESHOLD:"
+  printf '%s' "$skipped_list"
+  notify "Borg Backup" "Skipping $skipped_count large file(s) in Downloads (>= $SIZE_THRESHOLD)"
+fi
+
 # 3. Run backup
 timeout -s KILL 3600 /opt/homebrew/bin/borgmatic --verbosity 0
 

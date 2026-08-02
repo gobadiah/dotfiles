@@ -135,6 +135,34 @@ function brew() {
   return $exit_code
 }
 
+# iTerm2 activity color profiles (see Library/.../iTerm2/DynamicProfiles/activities.json)
+if [[ "$TERM_PROGRAM" == "iTerm.app" ]]; then
+  # hosts that should flip the window to a given profile while connected
+  typeset -gA ITERM_HOST_PROFILES=(synology NAS)
+  ITERM_DEFAULT_PROFILE=Personal
+
+  function iterm_profile() {
+    printf "\033]1337;SetProfile=%s\a" "$1"
+  }
+  alias work="iterm_profile Work"
+  alias nas="iterm_profile NAS"
+  alias perso="iterm_profile $ITERM_DEFAULT_PROFILE"
+
+  function ssh() {
+    local arg profile
+    for arg in "$@"; do
+      profile="${ITERM_HOST_PROFILES[$arg]}"
+      [[ -n "$profile" ]] && break
+    done
+    [[ -z "$profile" ]] && { command ssh "$@"; return }
+    iterm_profile "$profile"
+    command ssh "$@"
+    local exit_code=$?
+    iterm_profile "$ITERM_DEFAULT_PROFILE"
+    return $exit_code
+  }
+fi
+
 # git alias
 # clean local branches
 function gclean() {
@@ -203,3 +231,10 @@ export PATH="/opt/homebrew/bin:$PATH"
 export RUBY_CONFIGURE_OPTS="--with-openssl-dir=$(brew --prefix openssl@3)"
 eval "$(rbenv init - --no-rehash zsh)"
 export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+
+# bun completions
+[ -s "/Users/michaeljourno/.bun/_bun" ] && source "/Users/michaeljourno/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"

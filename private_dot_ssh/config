@@ -1,5 +1,8 @@
 Host synology
-    hostname dsm.gobadiah.com
+    # MagicDNS name (resolved by Tailscale itself, not CoreDNS) so admin access
+    # survives even if the CoreDNS container is down. dsm.gobadiah.com now only
+    # resolves on-tailnet via CoreDNS and would break if it stops.
+    hostname synology.tail833f84.ts.net
     port 244
     User michael
     WarnWeakCrypto no

@@ -2,11 +2,25 @@
 set -euo pipefail
 
 CHEZMOI_DIR="${CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}"
+# Absolute path: launchd runs this with a minimal PATH that excludes
+# /opt/homebrew/bin, so a bare `chezmoi` would fail every night.
+CHEZMOI="/opt/homebrew/bin/chezmoi"
 
-# No-op if clean
-if git -C "$CHEZMOI_DIR" status --porcelain | grep -q .; then
-  : # dirty, continue
-else
+# Pull changes made directly in $HOME back into the source dir. Without this,
+# live edits never reach git — only changes already staged into source do.
+# The target wins on conflict: edits in $HOME are the ones made without
+# thinking about chezmoi, whereas source edits are deliberate and inert until
+# `chezmoi apply`. Templates are never overwritten, so secrets stay secret.
+# Bounded: re-add renders templates to compute target state, and several of
+# those call `op`. If 1Password is locked at 23:00 that could block forever,
+# so cap it and fall through to committing whatever is already in source.
+if ! /opt/homebrew/bin/timeout 300 "$CHEZMOI" re-add; then
+  echo "chezmoi-autocommit: re-add failed or timed out, committing source-only changes" >&2
+fi
+
+# No-op if clean. Avoids `| grep -q`: under pipefail, grep exits on the first
+# match and the writer can die of SIGPIPE, failing the pipeline.
+if [ -z "$(git -C "$CHEZMOI_DIR" status --porcelain)" ]; then
   exit 0
 fi
 

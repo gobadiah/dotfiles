@@ -50,15 +50,16 @@ accrues no HnR. `DRY_RUN` defaults to **true** (this deletes data and is run by 
 
 ### Inbox read-state (MARK_READ, default on)
 
-A "Torrent deleted" message is marked **read** only when its torrent was **actually removed from
-Deluge** this run. That gives the inbox a clean meaning: **unread = not (yet) removed by this skill**
-(already-gone / handled-elsewhere messages stay unread; ones we act on go read).
+A "Torrent deleted" message is marked **read** once it is **resolved** in a live run: its torrent was
+**removed from Deluge** this run, **or confirmed already gone** (handled earlier by deluge_cleanup or
+a previous run). That gives the inbox a clean meaning: **unread = not yet processed** — new unread
+deletion messages really are new work. Only parse failures and removal errors stay unread.
 
 Implementation detail that matters: opening a conversation to parse its release name **marks it read
 as a side effect** (a plain GET of `viewconv` does this) — and that happens even in a dry run. So the
 script captures each message's original read state from the *listing* first, then after processing
-**restores the original unread state** for every message it merely peeked at but didn't act on. Net
-effect: a dry run is inbox-neutral, and only real removals leave a message read. Marking is via the
+**restores the original unread state** for every unresolved message (and for everything in a dry
+run). Net effect: a dry run is inbox-neutral, and a live run leaves resolved messages read. Marking is via the
 inbox masschange form: `POST inbox.php` with `action=masschange`, `actiontype=Mark read|Mark unread`,
 `referrer=/inbox.php`, a fresh `AntiCsrfToken`, and one `messages[]=<convid>` per conversation.
 Set `MARK_READ=false` to disable all inbox writes (leave read-state untouched).

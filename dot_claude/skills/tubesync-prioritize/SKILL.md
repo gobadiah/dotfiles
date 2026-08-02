@@ -101,6 +101,15 @@ Jellyfin. Total finish ≈ (ready + needs_meta) ÷ throughput, where throughput 
 
 ## Gotchas
 
+- **Exclude members-only videos from the prioritize pass** (e.g. thetechreporttr "(Ad Free)" titles,
+  some atechuet uploads): they sit in `needs_meta` looking legitimate, but scheduling metadata for
+  them only re-creates the perpetual-error clog that `tubesync_members_only_sweep.py` cleans daily.
+  Eyeball the pending list first (title filter like `'(ad free)' in title.lower()`) and skip them —
+  the daily sweep will probe + `manual_skip` them properly.
+- **Queues empty but `ready`/`needs_meta` > 0 = tasks were LOST** (seen 2026-07-17 after a container
+  restart): nothing will ever run them again on its own (next daily reindex aside). The prioritize
+  pass is the fix — it reschedules exactly that stranded set.
+
 - huey **does** honor priority here (1000 jumps ahead of 60–65). Confirm with, in `manage.py shell`:
   `import sync.tasks; from django_huey import get_queue; from collections import Counter;
    print(Counter(t.priority for t in get_queue('limited').pending()))`.

@@ -1,9 +1,4 @@
 {
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true
-  },
-  "alwaysThinkingEnabled": true,
-  "skipDangerousModePermissionPrompt": true,
   "hooks": {
     "Stop": [
       {
@@ -15,5 +10,12 @@
         ]
       }
     ]
-  }
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true,
+  "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
+  "model": "claude-fable-5[1m]"
 }

@@ -1,3 +1,10 @@
 README.md
 LICENSE
 bootstrap/
+# iTerm2 reads and writes this directly in the repo — never applied to $HOME
+iterm/
+
+# borg client-side security state, not config: nonce and manifest-timestamp
+# change on every backup run, and restoring stale copies would disarm borg's
+# replay detection or risk AES-CTR nonce reuse. borg recreates them on demand.
+.config/borg/security/
