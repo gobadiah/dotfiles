@@ -6,6 +6,11 @@ CHEZMOI_DIR="${CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}"
 # /opt/homebrew/bin, so a bare `chezmoi` would fail every night.
 CHEZMOI="/opt/homebrew/bin/chezmoi"
 
+# Same notification helper as scripts/borg-backup.sh.
+notify() {
+  /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
+}
+
 # Pull changes made directly in $HOME back into the source dir. Without this,
 # live edits never reach git — only changes already staged into source do.
 # The target wins on conflict: edits in $HOME are the ones made without
@@ -16,6 +21,22 @@ CHEZMOI="/opt/homebrew/bin/chezmoi"
 # so cap it and fall through to committing whatever is already in source.
 if ! /opt/homebrew/bin/timeout 300 "$CHEZMOI" re-add; then
   echo "chezmoi-autocommit: re-add failed or timed out, committing source-only changes" >&2
+  notify "chezmoi autocommit" "re-add failed or timed out — \$HOME changes were not backed up"
+fi
+
+# Anything still showing as target-modified after re-add is drift that re-add
+# *cannot* capture — in practice templated targets, which are skipped so that
+# secrets are never written into the source. That drift is invisible to git and
+# would be silently reverted by the next `chezmoi apply`, so it needs a human.
+# This runs before the is-there-anything-to-commit check below: source can be
+# clean while $HOME has drifted, and that is exactly the case worth reporting.
+DRIFT=$(/opt/homebrew/bin/timeout 120 "$CHEZMOI" status 2>/dev/null | awk '/^.M/ {print $2}' || true)
+if [ -n "$DRIFT" ]; then
+  COUNT=$(printf '%s\n' "$DRIFT" | wc -l | tr -d ' ')
+  FILES=$(printf '%s\n' "$DRIFT" | head -3 | tr '\n' ' ')
+  echo "chezmoi-autocommit: $COUNT file(s) drifted but not capturable: $FILES" >&2
+  notify "chezmoi drift not backed up" \
+    "$COUNT file(s) changed in \$HOME that re-add cannot capture: $FILES— edit via chezmoi edit, then apply"
 fi
 
 # No-op if clean. Avoids `| grep -q`: under pipefail, grep exits on the first

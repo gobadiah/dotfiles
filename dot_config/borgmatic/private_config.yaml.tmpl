@@ -241,6 +241,10 @@ exclude_patterns:
 # details.
 exclude_from:
   - {{ .chezmoi.homeDir }}/.config/borgmatic/excludes/video_files.txt
+  # Regenerated each run by borg-backup.sh: absolute paths (pf:...) of
+  # Downloads files over the size threshold, so multi-GB throwaway files
+  # never hit the CPL link. See borg-backup.sh.
+  - {{ .chezmoi.homeDir }}/.config/borgmatic/excludes/large_files.txt
 
 # Exclude directories that contain a CACHEDIR.TAG file. See
 # http://www.brynosaurus.com/cachedir/spec.html for details. Defaults
@@ -359,6 +363,10 @@ encryption_passcommand: 'security find-generic-password -s "borg" -w'
 # Command to use instead of "ssh". This can be used to specify ssh
 # options. Defaults to not set.
 ssh_command: ssh -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ConnectTimeout=10
+# CPL (powerline) uplink to the NAS is only ~7 Mbit/s (~870 KiB/s) up and
+# is shared/half-duplex, so an unthrottled borg upload saturates it and
+# takes the household internet down. Cap borg at ~half the uplink.
+upload_rate_limit: 400   # KiB/s
 
 # Base path used for various Borg directories. Defaults to $HOME,
 # ~$USER, or ~.

@@ -48,6 +48,18 @@ is wrapped in `timeout 300` because rendering templates calls `op`, which would 
 block forever if 1Password is locked at 23:00. Paths inside the script are absolute —
 launchd's PATH excludes `/opt/homebrew/bin`.
 
+**The template exception is a trap.** Because templated targets are never re-added, editing one
+directly in `$HOME` leaves a change that is never backed up *and* that `chezmoi apply` will
+silently revert. This already happened once: `~/.config/borgmatic/config.yaml` had gained an
+active `upload_rate_limit: 400` and a `large_files.txt` exclude that existed nowhere in the
+source, so an `apply` would have removed borg's upload throttle and saturated the NAS uplink.
+Edit templated targets with `chezmoi edit <target>` (which opens the `.tmpl`) followed by
+`chezmoi apply`, never in `$HOME`. Persistent drift in `chezmoi status` is the warning sign.
+
+The nightly run raises a macOS notification (same `osascript` helper as `scripts/borg-backup.sh`)
+whenever it finds drift `re-add` could not capture, or when `re-add` itself fails or times out.
+Both are cases where `$HOME` changes are silently not being backed up.
+
 Machine-local *state* must be kept out of management, or `re-add` commits it nightly. See
 `.chezmoiignore` for `.config/borg/security/`.
 
