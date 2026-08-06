@@ -786,9 +786,16 @@ echo "--- 3. last write the NAS actually received ---"
    it: the plist is still on disk, `launchctl` simply never fires it, and **nothing warns you**.
    This is what happened on 2026-08-04 — the agent was switched off as collateral of the
    login-items purge (memory `mac-startup-cleanup`), which had explicitly intended to *keep* it.
-   Fix in **System Settings → General → Login Items & Extensions → Allow in the Background**;
-   the entry appears under **"Unknown Developer"** because the plist has no signed parent, which
-   is exactly why it looks like cruft and gets toggled off by mistake.
+   Fix in **System Settings → General → Login Items & Extensions → Allow in the Background** —
+   but **the entry is listed as `caffeinate`, not as anything resembling "borg"**. macOS derives
+   the display name from the plist's `ProgramArguments[0]`, which here is `/usr/bin/caffeinate`
+   (used to hold the Mac awake during the backup). It sits under "Unknown Developer" with no hint
+   of what it does, which is exactly why it gets switched off by mistake and why searching the
+   list for "borg" finds nothing. Confirm you have the right row — it is the only `caffeinate`
+   entry, and the only `disallowed` one besides Canon's `CIJSULAgent`:
+   ```bash
+   sfltool dumpbtm 2>/dev/null | grep -E "^ +Name:|^ +Disposition:" | paste - - | grep -i caffeinate
+   ```
 3. `/volume1/borg-backups/macbook` `index.*` / `hints.*` mtime = the last backup the NAS actually
    received. It should agree with the log.
 
@@ -928,7 +935,9 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | tracearr weekly `pct_tc` | 45.7 → 56.4 → 8.8 → **0.9 → 1.8** (fix landed 2026-07-21) |
 | tracearr `sessions` chunks | 15 |
 | tubesync | 647 downloaded, 21 pending, 15 sources, 0 `ready`, 21 `needs_meta`, ~840 benign log "errors"/30 d |
-| Laptop borg | **launchd agent NOT loaded; last backup 2026-08-04 11:00** (open finding) |
+| tubesync memory | **646 MiB / 4 GiB (15.8 %), CPU 0.3 %** after the 2026-08-06 hat-syslog cleanup (was 99.5 % / 82 %) |
+| `state/hat/` | 24 KB, 1 file — **if this is ever in the hundreds of MB, the doom loop is back** |
+| Laptop borg | BTM `disallowed` since 2026-08-04; listed as **`caffeinate`** in Login Items |
 | Bazarr | 8 providers all Good; wanted 1538 movies / 1982 episodes |
 | AI subtitles | done 102, failures 6, 8-provider baseline |
 | postgres dump | `dump-20260806.sql.gz`, 176 MB, 03:00, 30 retained |
