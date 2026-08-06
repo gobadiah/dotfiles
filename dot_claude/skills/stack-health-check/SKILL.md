@@ -56,6 +56,24 @@ SQL
 Databases: `postgres` container hosts `tubesync`, `bazarr`, and the *arr DBs (user `mediastack`);
 `tracearr-db` is separate (user `tracearr`, db `tracearr`).
 
+**Never run `docker compose up -d <service>` without `--no-deps`.** Compose also recreates that
+service's `depends_on` targets whenever their running config no longer matches the compose file —
+and most containers here have been up for weeks, so they *don't* match. Recreating `tubesync` on
+2026-08-06 therefore recreated **`postgres`**, which is the shared database for radarr, sonarr,
+prowlarr, lidarr, bazarr, jellystat and tubesync. The tubesync step then errored, aborting the
+run before postgres was started, so the whole stack lost its database and every *arr crashed with
+`Non-recoverable failure, waiting for user intervention`. Recovery was `docker start postgres`
+then `docker restart radarr sonarr prowlarr lidarr` — data was never at risk (postgres uses a
+bind mount) but it was a real outage. Always:
+
+```bash
+/usr/bin/ssh synology 'cd /volume2/docker-ssd && sudo /usr/local/bin/docker compose up -d --no-deps <service>'
+```
+
+Compose changes go through `~/scripts/compose_deploy.sh` (`status` → `push`), never by editing
+the NAS copy. Its validation is worth trusting — it caught a duplicate `stop_grace_period` key
+that would have made the file unparseable.
+
 **`docker logs --since 720h` does not actually reach back 30 days.** Container logs start at the
 last *recreation*, and watchtower recreates most containers weekly (§1). Observed 2026-08-06:
 autobrr's entire log began 2026-07-28, so a "last 30 days" query covered 9 days. Always print the
@@ -598,13 +616,31 @@ forever:
 | Container | 98.6 % of limit, ~57 % CPU, 4 GB swap churned continuously |
 | Onset | first archive `syslog.db.1` at 2026-08-04 17:34 |
 
-**Raising the memory limit does not fix this** — that is why 2G → 4G did not help. The DB keeps
-growing, so any fixed ceiling is crossed again later. The cure is to keep the store small:
-delete `state/hat/syslog.db` and its archives (tubesync stops the loop and reclaims the space
-immediately; the data is diagnostic logging, not tubesync state).
+**Raising the memory limit cannot fix this** — that is why 2G → 4G did not help. The cleanup
+working set is `high − low` = 9,000,000 rows regardless of the cap, so a bigger limit only moves
+the failure later.
 
-Diagnostic tell without touching the NAS filesystem: `du -sh state/hat/` over a few hundred MB,
-or an archive count in the hundreds, means the loop is running or about to start.
+**Fixed permanently 2026-08-06** by bind-mounting a replacement s6 run script that passes
+`--db-high-size 200000 --db-low-size 50000` and drops `--db-enable-archive` (repo:
+`~/scripts/tubesync-hat-syslog-run` → `/volume2/docker-ssd/tubesync/s6_overrides/hat-syslog-server-run`).
+Store now caps at ~59 MB with a plain daily DELETE. Verify it is still in force:
+
+```bash
+/usr/bin/ssh synology '
+sudo /usr/local/bin/docker top tubesync -eo args | grep hat-syslog
+echo "--- override still matches the repo copy? ---"
+sudo -n md5sum /volume2/docker-ssd/tubesync/s6_overrides/hat-syslog-server-run
+echo "--- has upstream changed the script we shadow? ---"
+sudo /usr/local/bin/docker run --rm --entrypoint cat ghcr.io/meeb/tubesync:latest \
+  /etc/s6-overlay/s6-rc.d/hat-syslog-server/run 2>/dev/null | md5sum'
+```
+
+**PASS**: the running command shows both size flags and **no** `--db-enable-archive`; the deployed
+md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run`. If the *upstream* md5 changes, read their
+new script — ours shadows it, so an upstream fix or restructure would be silently ignored.
+
+Diagnostic tell if it ever regresses: `du -sh state/hat/` over a few hundred MB, or any
+`syslog.db.NNNN` archive files at all (with `--db-enable-archive` dropped there should be none).
 
 **Downloads keep working while this loop runs**, just slowly — the huey workers survive. So a
 tubesync that is "up, healthy, downloading a bit less than usual" can still be burning a CPU core
