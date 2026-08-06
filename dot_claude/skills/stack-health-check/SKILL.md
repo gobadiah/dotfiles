@@ -74,6 +74,36 @@ Compose changes go through `~/scripts/compose_deploy.sh` (`status` → `push`), 
 the NAS copy. Its validation is worth trusting — it caught a duplicate `stop_grace_period` key
 that would have made the file unparseable.
 
+**Know how much of the stack a bare `compose up` would churn**, because it is normally most of it:
+
+```bash
+/usr/bin/ssh synology 'cd /volume2/docker-ssd && sudo /usr/local/bin/docker compose up -d --dry-run 2>&1 | grep Recreate | grep -v Recreated'
+```
+
+Read-only, and the honest answer is usually alarming: **20 of 33 on 2026-08-06.** The dominant
+cause is not config drift — it is that **watchtower leaves `com.docker.compose.image` pointing at
+the pre-update image**. Watchtower recreates the container with the new image but copies the old
+labels verbatim, so compose compares that stale label against the live image, sees a mismatch, and
+wants to recreate. Every watchtower-updated container is permanently "stale" to compose thereafter.
+Count them:
+
+```bash
+/usr/bin/ssh synology 'for c in $(sudo /usr/local/bin/docker ps --format "{{.Names}}"); do
+  cur=$(sudo /usr/local/bin/docker inspect -f "{{.Image}}" $c | cut -c8-19)
+  lbl=$(sudo /usr/local/bin/docker inspect -f "{{index .Config.Labels \"com.docker.compose.image\"}}" $c 2>/dev/null | cut -c8-19)
+  [ -n "$lbl" ] && [ "$cur" != "$lbl" ] && echo "STALE $c"
+done | wc -l'
+```
+
+This is **not itself a fault** — the containers are running the right images; only compose's
+bookkeeping is stale. It matters solely because it makes any unscoped `compose up` a stack-wide
+restart. Treat it as the reason to always scope with `--no-deps` and an explicit service name,
+not as something to fix.
+
+Compose's expected hashes are printable, which separates this cause from real config drift:
+`sudo docker compose config --hash="*"` vs each container's
+`com.docker.compose.config-hash` label.
+
 **`docker logs --since 720h` does not actually reach back 30 days.** Container logs start at the
 last *recreation*, and watchtower recreates most containers weekly (§1). Observed 2026-08-06:
 autobrr's entire log began 2026-07-28, so a "last 30 days" query covered 9 days. Always print the
