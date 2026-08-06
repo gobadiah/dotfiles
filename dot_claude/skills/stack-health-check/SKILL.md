@@ -100,6 +100,14 @@ bookkeeping is stale. It matters solely because it makes any unscoped `compose u
 restart. Treat it as the reason to always scope with `--no-deps` and an explicit service name,
 not as something to fix.
 
+> **Decided 2026-08-06: keep watchtower and live with the drift.** The alternative — moving
+> updates to a nightly `compose pull` + `compose up -d` so labels stay correct — was considered
+> and rejected: it buys consistency at the cost of a new updater to maintain and a one-time
+> stack-wide recreate, to fix bookkeeping that has no operational effect. Upstream
+> ([containrrr/watchtower#339](https://github.com/containrrr/watchtower/issues/339)) is
+> Abandoned/wontfix, and container labels are immutable, so there is no in-place repair.
+> **Do not re-propose this each month** — report the count and move on.
+
 Compose's expected hashes are printable, which separates this cause from real config drift:
 `sudo docker compose config --hash="*"` vs each container's
 `com.docker.compose.config-hash` label.
