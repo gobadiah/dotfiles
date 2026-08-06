@@ -128,6 +128,23 @@ Anything needing true 30-day history must come from a **database or a file log**
 Also: keep greps over container logs bounded (`| head`, `| tail`, a narrow `--since`). An
 unbounded grep piping ~16 k lines back over ssh dropped the connection with a broken pipe.
 
+**A glob inside a root-only directory silently expands to nothing — wrap it in `sudo sh -c`.**
+`sudo -n ls /some/root-only-dir/*.gz` is expanded by *your* shell (running as `michael`) before
+sudo ever runs, so if the directory is mode 0700 root the pattern matches nothing and `ls` is
+handed a literal `*.gz`. The result is an empty listing and a count of **0**, which for a backup
+check reads as "the backups are gone". Two directories here are like this —
+`/volume2/docker-ssd/postgres-dumps/` and `tubesync/state/hat/`. Always:
+
+```bash
+/usr/bin/ssh synology 'sudo -n sh -c "ls -lat /volume2/docker-ssd/postgres-dumps/*.sql.gz | head -3"'
+```
+
+The same trap bites `rm`: a delete that looks like it succeeded may have removed nothing.
+
+**NAS `python3` is 3.8.** f-strings cannot reuse the enclosing quote character
+(`f"{d["key"]}"` is a `SyntaxError` there, though it is legal in 3.12+). Use `%`-formatting or
+swap the inner quotes in any inline `python3 -c` on the NAS.
+
 ---
 
 ## 1. Container fleet
@@ -428,12 +445,12 @@ echo "--- failing indexers ---"
 curl -s -H "X-Api-Key: $PROWLARR_API_KEY" "http://localhost:9696/api/v1/indexerstatus"; echo
 echo "--- 30d stats ---"
 S=$(date -u -d "-30 days" +%Y-%m-%dT00:00:00Z 2>/dev/null || date -u -v-30d +%Y-%m-%dT00:00:00Z); E=$(date -u +%Y-%m-%dT00:00:00Z)
-curl -s -H "X-Api-Key: $PROWLARR_API_KEY" "http://localhost:9696/api/v1/indexerstats?startDate=$S&endDate=$E" | python3 -c "
-import sys,json
-for i in json.load(sys.stdin)[\"indexers\"]:
-    q,fq = i[\"numberOfQueries\"], i[\"numberOfFailedQueries\"]
-    r,fr = i[\"numberOfRssQueries\"], i[\"numberOfFailedRssQueries\"]
-    print(f\"{i[\"indexerName\"]:<20} q={q:>5} fail={fq:>4} rss={r:>6} rssfail={fr:>5} grabs={i[\"numberOfGrabs\"]:>4} failgrabs={i[\"numberOfFailedGrabs\"]} avg={i[\"averageResponseTime\"]}ms\")
+curl -s -m 30 -H "X-Api-Key: $PROWLARR_API_KEY" "http://localhost:9696/api/v1/indexerstats?startDate=$S&endDate=$E" | python3 -c "
+import sys, json
+rows = json.load(sys.stdin)[\"indexers\"]
+print(\"%-20s %5s %5s %7s %8s %6s %6s\" % (\"indexer\",\"q\",\"fail\",\"rss\",\"rssfail\",\"grabs\",\"avgms\"))
+for i in sorted(rows, key=lambda r: -r[\"numberOfQueries\"]):
+    print(\"%-20s %5d %5d %7d %8d %6d %6d\" % (i[\"indexerName\"], i[\"numberOfQueries\"], i[\"numberOfFailedQueries\"], i[\"numberOfRssQueries\"], i[\"numberOfFailedRssQueries\"], i[\"numberOfGrabs\"], i[\"averageResponseTime\"]))
 "'
 ```
 
@@ -665,7 +682,7 @@ Store now caps at ~59 MB with a plain daily DELETE. Verify it is still in force:
 
 ```bash
 /usr/bin/ssh synology '
-sudo /usr/local/bin/docker top tubesync -eo args | grep hat-syslog
+sudo /usr/local/bin/docker top tubesync -eo pid,args | grep hat-syslog
 echo "--- override still matches the repo copy? ---"
 sudo -n md5sum /volume2/docker-ssd/tubesync/s6_overrides/hat-syslog-server-run
 echo "--- has upstream changed the script we shadow? ---"
@@ -736,8 +753,11 @@ Bazarr call above.
   auto-resets `provider_baseline` to now on an *addition* (so every language must fail a fresh
   all-provider sweep before being translated). Expect a temporary drop in output; that is
   correct, not broken.
-- A stale `subtitle_translate.lock` (older than ~6 h) with no running `claude-cli` container →
-  a run died holding the lock; every subsequent run is a no-op.
+- A stale `subtitle_translate.lock` — but **check the log before believing it**. The lock's mtime
+  is when the run *started*, and a run legitimately lasts hours, so an 8-hour-old lock is normal
+  if the log ends in `run complete: N written`. Only treat it as a dead run when the lock is old
+  **and** the log's last line is mid-translation **and** no `claude-cli` container is running.
+  (Observed 2026-08-06: lock stamped 08:00, run completed 13:37 — a false positive.)
 - Rising `failures`. The recurring error shape is `sent 150 blocks, missing [...]` — the model
   dropped cues from a chunk. A few are normal (the script retries); a jump means the `[N]`-block
   protocol is degrading and `CHUNK_CUES` (150) may need lowering. Memory `subtitle-translate`.
@@ -829,8 +849,7 @@ the script header; memory `synology-script-deployment`.
 
 ```bash
 /usr/bin/ssh synology '
-echo "--- postgres dumps ---"; sudo -n ls -lat /volume2/docker-ssd/postgres-dumps/*.sql.gz | head -5
-echo "--- dump count (expect ~30) ---"; sudo -n ls /volume2/docker-ssd/postgres-dumps/*.sql.gz | wc -l'
+sudo -n sh -c "ls -lat /volume2/docker-ssd/postgres-dumps/*.sql.gz | head -5; echo dumps=\$(ls /volume2/docker-ssd/postgres-dumps/*.sql.gz | wc -l)"'
 ```
 
 **PASS**: today's `dump-YYYYMMDD.sql.gz` present, ~175 MB, ~30 files retained, size **stable or
