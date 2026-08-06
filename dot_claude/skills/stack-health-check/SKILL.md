@@ -56,6 +56,22 @@ SQL
 Databases: `postgres` container hosts `tubesync`, `bazarr`, and the *arr DBs (user `mediastack`);
 `tracearr-db` is separate (user `tracearr`, db `tracearr`).
 
+**`docker logs --since 720h` does not actually reach back 30 days.** Container logs start at the
+last *recreation*, and watchtower recreates most containers weekly (§1). Observed 2026-08-06:
+autobrr's entire log began 2026-07-28, so a "last 30 days" query covered 9 days. Always print the
+first log line before drawing a conclusion from a log-based count:
+
+```bash
+/usr/bin/ssh synology 'sudo /usr/local/bin/docker logs --since 720h <container> 2>&1 | head -1 | cut -c1-160'
+```
+
+If the window is short, say so in the report rather than reporting the count as a 30-day figure.
+Anything needing true 30-day history must come from a **database or a file log** under
+`/volume2/docker-ssd/logs/`, not from `docker logs`.
+
+Also: keep greps over container logs bounded (`| head`, `| tail`, a narrow `--since`). An
+unbounded grep piping ~16 k lines back over ssh dropped the connection with a broken pipe.
+
 ---
 
 ## 1. Container fleet
@@ -269,6 +285,12 @@ sudo /usr/local/bin/docker logs --since 1h autobrr 2>&1 | grep -c "got message"'
 `PassThePopcorn connected=True healthy=True`, `#ptp-announce monitoring=True`, and a non-zero
 "got message" count = the feed is fine and any zero-release days were a genuine **freeleech
 drought**, which is normal and outside your control. PTP freeleech arrives in waves.
+
+Note the asymmetry: this proves the feed is healthy **now**, and — as far back as the log
+reaches — that announces were arriving while zero releases matched. It cannot prove anything
+about a zero run older than the container's last recreation (see §0). For 2026-07-18→31, only
+Jul 28 onward was verifiable this way; Jul 18–27 rests on the ratio and Radarr cross-checks.
+Say which part you actually verified.
 
 **Only escalate a zero run when** `connected=False`, `monitoring=False`, or the last-hour
 announce count is 0. Then it is the IRC feed, and the filter is starved.
