@@ -125,8 +125,21 @@ If the window is short, say so in the report rather than reporting the count as 
 Anything needing true 30-day history must come from a **database or a file log** under
 `/volume2/docker-ssd/logs/`, not from `docker logs`.
 
-Also: keep greps over container logs bounded (`| head`, `| tail`, a narrow `--since`). An
-unbounded grep piping ~16 k lines back over ssh dropped the connection with a broken pipe.
+**DSM's Docker uses the `db` log driver, not `json-file`** (`docker info | grep -i "logging driver"`
+→ `db`; logs live in a binary `log.db`). `docker logs` therefore has to walk that database, which
+on a chatty container is slow enough to blow the ssh session — `docker logs --since 1h autobrr |
+grep -c` failed three times with `Connection closed by remote host` / broken pipe, even bounded
+with `--tail 3000`.
+
+For anything chatty, grep the log file directly instead — bounded by line count:
+
+```bash
+/usr/bin/ssh synology 'lp=$(sudo /usr/local/bin/docker inspect -f "{{.LogPath}}" autobrr)
+sudo -n sh -c "tail -n 4000 $lp" | grep -c "got message"'
+```
+
+Timestamps inside `log.db` are escaped/binary, so extract counts, not time ranges. And keep every
+grep over container logs bounded (`| head`, `| tail`, a narrow `--since`) regardless.
 
 **A glob inside a root-only directory silently expands to nothing — wrap it in `sudo sh -c`.**
 `sudo -n ls /some/root-only-dir/*.gz` is expanded by *your* shell (running as `michael`) before
@@ -391,13 +404,18 @@ for n in (d if isinstance(d,list) else d.get(\"data\",[])):
     print(n.get(\"name\"), \"enabled=\",n.get(\"enabled\"), \"connected=\",n.get(\"connected\"), \"healthy=\",n.get(\"healthy\"))
     for c in n.get(\"channels\") or []: print(\"   #\", c.get(\"name\"), \"monitoring=\", c.get(\"monitoring\"))
 "
-echo "--- announces seen in the last hour ---"
-sudo /usr/local/bin/docker logs --since 1h autobrr 2>&1 | grep -c "got message"'
+echo "--- announces in the last 4000 log lines ---"
+lp=$(sudo /usr/local/bin/docker inspect -f "{{.LogPath}}" autobrr)
+sudo -n sh -c "tail -n 4000 $lp" | grep -c "got message"'
 ```
 
-`PassThePopcorn connected=True healthy=True`, `#ptp-announce monitoring=True`, and a non-zero
-"got message" count = the feed is fine and any zero-release days were a genuine **freeleech
-drought**, which is normal and outside your control. PTP freeleech arrives in waves.
+> Do **not** use `docker logs --since 1h autobrr | grep` here — the `db` log driver makes it slow
+> enough to drop the ssh connection (see §0). Read the log file directly, as above.
+
+`PassThePopcorn connected=True healthy=True`, `#ptp-announce monitoring=True`, and a healthy
+announce count (**247 per 4000 lines on 2026-08-06**) = the feed is fine and any zero-release days
+were a genuine **freeleech drought**, which is normal and outside your control. PTP freeleech
+arrives in waves.
 
 Note the asymmetry: this proves the feed is healthy **now**, and — as far back as the log
 reaches — that announces were arriving while zero releases matched. It cannot prove anything
