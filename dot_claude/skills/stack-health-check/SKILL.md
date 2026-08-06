@@ -307,11 +307,51 @@ Lifetime push outcomes:
 curl -s -H "X-API-Token: $AUTOBRR_API_KEY" "http://localhost:7474/api/release/stats"; echo'
 ```
 
-**Flag a rising `push_error_count`.** The webhook (`autobrr-webhook`, port 8787) is what adds the
-movie to Radarr *and unmonitors it after the grab*. When it errors, the freeleech movie lands
-**monitored**, and Radarr then upgrade-grabs the **non-freeleech** version — that is the original
-ratio leak (memory `ptp-ratio-webhook-leak`). The lifetime counter includes errors from before
-the fix, so what matters is the **delta since last month**, not the absolute number. Record it.
+`push_error_count` is the lifetime count of a matched release's **action** failing. It is a
+lifetime total that never resets, so **only the delta since last month means anything** — record
+the number, don't react to its size.
+
+**The two error paths mean very different things**, so break the count down before judging it:
+
+```bash
+/usr/bin/ssh synology 'set -a; . /volume2/docker-ssd/.env; set +a;
+curl -s -m 30 -H "X-API-Token: $AUTOBRR_API_KEY" "http://localhost:7474/api/release?limit=500&push_status=PUSH_ERROR" | python3 -c "
+import sys, json, collections
+d = json.load(sys.stdin)[\"data\"]
+byf=collections.Counter(); bym=collections.Counter(); act=collections.Counter(); err=collections.Counter()
+for r in d:
+    for a in (r.get(\"action_status\") or []):
+        if a[\"status\"] != \"PUSH_ERROR\": continue
+        byf[r[\"filter\"]] += 1; bym[r[\"timestamp\"][:7]] += 1
+        act[a.get(\"action\",\"?\")+\"/\"+a.get(\"type\",\"?\")] += 1
+        for x in (a.get(\"rejections\") or []): err[x[:110]] += 1
+print(\"by filter:\", dict(byf)); print(\"by month:\", sorted(bym.items())); print(\"action:\", dict(act))
+for m,n in err.most_common(6): print(n, m)
+"'
+```
+
+- **`autobrr-webhook/WEBHOOK` errors on filter 1 (→ Radarr) are the ratio leak.** That webhook
+  adds the movie *and unmonitors it after the grab*; when it fails the movie stays **monitored**
+  and Radarr upgrade-grabs the **non-freeleech** version (memory `ptp-ratio-webhook-leak`).
+  These are the ones to chase.
+- **`deluge/DELUGE_V2` errors on filter 2 (→ Deluge) are a missed grab, not a leak** — the
+  torrent simply never downloaded. Nothing was over-downloaded, so the ratio is unaffected.
+
+Baseline 2026-08-06: 282 lifetime, **all of them in June 2026, none since**. 276 were filter 2 /
+Deluge (222 × `could not connect to client Deluge at host.docker.internal: EOF`) and only 6 were
+filter 1, of which ~5 were `could not parse macro … .TorrentImdbId` on releases with no IMDb ID.
+So the headline number is dominated by a healed June connectivity fault, not by the leak.
+
+That connectivity is worth re-verifying directly, because filter 2 is normally **disabled** and
+therefore never exercises the path — it would only fail once the ratio drops and `ptp_ratio.py`
+re-enables it, i.e. exactly when you need it:
+
+```bash
+/usr/bin/ssh synology 'sudo /usr/local/bin/docker exec autobrr getent hosts host.docker.internal
+sudo /usr/local/bin/docker exec autobrr sh -c "nc -z -w3 host.docker.internal 58846 && echo REACHABLE || echo UNREACHABLE"'
+```
+**PASS**: resolves to the `host-gateway` address (172.17.0.1, from autobrr's `extra_hosts`) and
+port 58846 is `REACHABLE`.
 
 Then the actual throughput, day by day:
 
@@ -1016,7 +1056,7 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | Deluge | 1898 torrents, **all Seeding**, 0 Error, 3 tracker-Error, incoming=1, tun0/tun0, port 55364 |
 | PTP | ratio 2.4761, up 2463 GiB / down 995 GiB, BP 8.86 M, leak covered |
 | autobrr filters | 1 enabled · 2 disabled · 3 disabled |
-| autobrr lifetime | total 3033 · push_approved 2783 · **push_error 282** · filter_rejected 0 |
+| autobrr lifetime | total 3045 · push_approved 2795 · push_error 282 (**all June 2026, none since**; 276 = filter-2 Deluge connect, 6 = filter 1) · filter_rejected 0 |
 | autobrr cadence | 17–45/day Jun 20 → Jul 17, **zero Jul 18–31**, resumed Aug 1 (drought, IRC healthy) |
 | Radarr / Sonarr / Prowlarr health | `[]` · `[]` · `[]` |
 | Radarr history · queue | 9486 lifetime · 0 queued |
