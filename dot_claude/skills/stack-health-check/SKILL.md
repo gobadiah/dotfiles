@@ -992,7 +992,7 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | Containers running | 33 (+ transient `claude-cli` one-shots) |
 | Restart counts / exited | 0 / none |
 | `/volume1` · `/volume2` | 90 % · 7 % |
-| Mem · swap · load | 8.7/31 Gi · 2.7/20 Gi · CPU 1.75 |
+| Mem · swap · load | 6.5/31 Gi · 1.9/20 Gi · CPU 1.25 (post-fix; the tubesync loop had inflated swap to 5.5 Gi) |
 | VPN exit | NL, AS49453 Global Layer, 213.152.161.54 |
 | Deluge | 1898 torrents, **all Seeding**, 0 Error, 3 tracker-Error, incoming=1, tun0/tun0, port 55364 |
 | PTP | ratio 2.4761, up 2463 GiB / down 995 GiB, BP 8.86 M, leak covered |
@@ -1008,10 +1008,11 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | tracearr 30 d | no gaps, 4–79 plays/day, 1–3 users, transcodes ~0 since 2026-07-21 |
 | tracearr weekly `pct_tc` | 45.7 → 56.4 → 8.8 → **0.9 → 1.8** (fix landed 2026-07-21) |
 | tracearr `sessions` chunks | 15 |
-| tubesync | 647 downloaded, 21 pending, 15 sources, 0 `ready`, 21 `needs_meta`, ~840 benign log "errors"/30 d |
-| tubesync memory | **646 MiB / 4 GiB (15.8 %), CPU 0.3 %** after the 2026-08-06 hat-syslog cleanup (was 99.5 % / 82 %) |
-| `state/hat/` | 24 KB, 1 file — **if this is ever in the hundreds of MB, the doom loop is back** |
-| Laptop borg | BTM `disallowed` since 2026-08-04; listed as **`caffeinate`** in Login Items |
+| tubesync | 590 downloaded of 14211 rows, 22 pending, 15 sources, 0 `ready`, ~840 benign log "errors"/30 d |
+| tubesync memory | **646 MiB / 4 GiB (15.8 %), CPU 0.3 %** after the 2026-08-06 hat-syslog fix (was 99.5 % / 82 %) |
+| `state/hat/` | 8 MB, single `syslog.db`, **no `syslog.db.NNNN` archives** — caps at ~59 MB. Hundreds of MB, or any archive file, means the override stopped applying |
+| Laptop borg | ✅ agent `allowed`, hourly again; last backup 2026-08-06 16:00 exit 0. Row is named **`caffeinate`** in Login Items |
+| Compose staleness | 20 of 33 containers, accepted by decision — see §0. Report the count, don't act on it |
 | Bazarr | 8 providers all Good; wanted 1538 movies / 1982 episodes |
 | AI subtitles | done 102, failures 6, 8-provider baseline |
 | postgres dump | `dump-20260806.sql.gz`, 176 MB, 03:00, 30 retained |
