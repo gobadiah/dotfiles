@@ -558,15 +558,57 @@ Known upstream bug, **do not re-diagnose**: `cleanup_old_media` never expires an
 `loaded_metadata` re-INSERTs a metadata row for the just-deleted media and rolls back every pass.
 Memory `tubesync-cleanup-old-media-broken`.
 
-Memory pressure — the limit was raised 2G → 4G (commit 55a8546):
+### Memory — and the `hat-syslog-server` doom loop
+
 ```bash
-/usr/bin/ssh synology 'sudo /usr/local/bin/docker inspect -f "started={{.State.StartedAt}} restarts={{.RestartCount}} OOMKilled={{.State.OOMKilled}} mem={{.HostConfig.Memory}}" tubesync'
+/usr/bin/ssh synology '
+sudo /usr/local/bin/docker inspect -f "started={{.State.StartedAt}} restarts={{.RestartCount}} OOMKilled={{.State.OOMKilled}} mem={{.HostConfig.Memory}}" tubesync
+sudo /usr/local/bin/docker stats --no-stream tubesync
+echo "--- top processes by RSS ---"
+sudo /usr/local/bin/docker top tubesync -eo pid,rss,comm --sort=-rss | head -6
+echo "--- hat syslog store (MUST stay small) ---"
+sudo -n du -sh /volume2/docker-ssd/tubesync/state/hat/ 2>/dev/null
+sudo -n ls /volume2/docker-ssd/tubesync/state/hat/ 2>/dev/null | wc -l
+echo "--- kernel OOM kills ---"
+sudo -n grep -c "Killed process" /var/log/kern.log 2>/dev/null'
 ```
-`mem` must read `4294967296`. **`OOMKilled=true` while the container is still up and
-`restarts=0` means the in-container OOM killer reaped a *worker* (yt-dlp/ffmpeg), not PID 1** —
-downloads die silently but tubesync keeps serving. This was already true on 2026-08-06 at the 4G
-limit, so treat it as a watch-list item: if it recurs alongside stalled downloads, the limit needs
-raising again. `restarts` > 0 with `OOMKilled=true` is the harder failure and *is* a finding.
+
+`mem` must read `4294967296`. **`OOMKilled=true` is never just a stale flag — always chase it to
+the process.** `docker top … --sort=-rss` names the culprit directly; `docker inspect` alone will
+not.
+
+**The known failure (found 2026-08-06, root-caused):** the image bundles a diagnostic syslog
+collector started unconditionally by
+`/etc/s6-overlay/s6-rc.d/hat-syslog-server/run`:
+
+```
+/usr/bin/python3 /usr/local/bin/hat-syslog-server --log-level INFO \
+    --db-enable-archive --db-path /config/state/hat/syslog.db
+```
+
+Its SQLite DB grows without bound. Once it is big enough that opening it exceeds the container's
+memory limit, startup OOMs **before** the archive step completes, s6 restarts it, and it loops
+forever:
+
+| Symptom | Observed value |
+|---|---|
+| `state/hat/syslog.db` | **2.9 GB** |
+| Rotated `syslog.db.NNNN` archives | ~1100, one every 3 min, all 12 KB (empty — it never got that far) |
+| `hat-syslog-server` RSS | 3.85 GiB of the container's 4 GiB (everything else totals < 30 MB) |
+| Container | 98.6 % of limit, ~57 % CPU, 4 GB swap churned continuously |
+| Onset | first archive `syslog.db.1` at 2026-08-04 17:34 |
+
+**Raising the memory limit does not fix this** — that is why 2G → 4G did not help. The DB keeps
+growing, so any fixed ceiling is crossed again later. The cure is to keep the store small:
+delete `state/hat/syslog.db` and its archives (tubesync stops the loop and reclaims the space
+immediately; the data is diagnostic logging, not tubesync state).
+
+Diagnostic tell without touching the NAS filesystem: `du -sh state/hat/` over a few hundred MB,
+or an archive count in the hundreds, means the loop is running or about to start.
+
+**Downloads keep working while this loop runs**, just slowly — the huey workers survive. So a
+tubesync that is "up, healthy, downloading a bit less than usual" can still be burning a CPU core
+and 4 GB of swap. Check §2 host load together with this.
 
 ## 10. Bazarr and the AI-translated subtitles
 
@@ -727,25 +769,35 @@ This runs **on the MacBook**, not the NAS, throttled to 400 KiB/s because the CP
 to lose silently, because nothing alerts when it stops — **check all three of these**:
 
 ```bash
-echo "--- 1. is the agent even loaded? ---"
-launchctl list | grep -i borg || echo "NOT LOADED — backups are not running at all"
-echo "--- 2. last run + outcome ---"
-ls -la ~/Library/Logs/borg-backup.log; tail -25 ~/Library/Logs/borg-backup.log
+echo "--- 1. log freshness (the real detector) ---"
+ls -la ~/Library/Logs/borg-backup.log; tail -20 ~/Library/Logs/borg-backup.log
+echo "--- 2. is macOS ALLOWING it to run? ---"
+sfltool dumpbtm 2>/dev/null | grep -A6 "Name: borg-backup" | grep -E "Disposition|Identifier"
+sfltool dumpbtm 2>/dev/null | grep -A6 "Name: chezmoi-autocommit" | grep -E "Disposition|Identifier"
 echo "--- 3. last write the NAS actually received ---"
 /usr/bin/ssh synology 'sudo -n ls -lat /volume1/borg-backups/macbook | head -6'
 ```
 
-1. **`launchctl list | grep -i borg` returning nothing is a FAIL**, even though
-   `~/Library/LaunchAgents/com.michael.borg-backup.plist` still exists on disk. A plist present
-   but not bootstrapped means the agent never fires and the log simply stops — no error, no
-   notification. Reload with
-   `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.michael.borg-backup.plist`.
-   (Compare against `com.gobadiah.chezmoi-autocommit`, which should show `state = not running`,
-   `last exit code = 0` under `launchctl print` — that is a healthy periodic agent between runs.)
-2. **A log that ends more than ~2 h ago is a FAIL**, whatever the last line says. This is the
-   real detector: the log's own mtime, not its contents.
+1. **A log whose mtime is more than ~2 h old is a FAIL**, whatever its last line says. The log's
+   mtime — not its contents — is the detector, because the failure mode is silence.
+2. **`Disposition: [enabled, disallowed, notified]` is the FAIL.** A healthy agent reads
+   `[enabled, allowed, notified]` — compare the two lines side by side; `chezmoi-autocommit` is
+   the known-good reference. `disallowed` means macOS's Background Task Management is blocking
+   it: the plist is still on disk, `launchctl` simply never fires it, and **nothing warns you**.
+   This is what happened on 2026-08-04 — the agent was switched off as collateral of the
+   login-items purge (memory `mac-startup-cleanup`), which had explicitly intended to *keep* it.
+   Fix in **System Settings → General → Login Items & Extensions → Allow in the Background**;
+   the entry appears under **"Unknown Developer"** because the plist has no signed parent, which
+   is exactly why it looks like cruft and gets toggled off by mistake.
 3. `/volume1/borg-backups/macbook` `index.*` / `hints.*` mtime = the last backup the NAS actually
    received. It should agree with the log.
+
+> **Do not conclude "it's running" from `launchctl print` alone, and do not conclude "it's dead"
+> from it either.** `StartCalendarInterval` agents are fired by UserEventAgent and are transient,
+> so `launchctl list | grep borg` is empty *both* when healthy-between-runs and when blocked.
+> The BTM disposition plus the log mtime are what actually distinguish the two.
+> Note `/usr/bin/log` must be spelled out — in zsh, `log` is a builtin that shadows it and
+> returns nothing with exit 0.
 
 `NAS unreachable, skipping` lines are normal and expected — the laptop is often off the LAN, and
 the job skips rather than failing. A *run* of them ending with a successful backup is healthy.
