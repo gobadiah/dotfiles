@@ -274,8 +274,10 @@ PY
    `downloading now: 0` is normal and not a finding — grabs are bursty.
 
 **Mass-error patterns and what they actually mean** (do not misdiagnose these):
-- **Every PTP torrent in Error simultaneously** → PTP Intermission (their scheduled downtime),
-  not your DNS/VPN. Memory `deluge-nightly-restart-ptp-intermission`.
+- **Every PTP torrent in Error simultaneously** → PTP Intermission (their downtime), not your
+  DNS/VPN. **An Intermission can last two weeks** — the Jul 2026 one ran 2026-07-18 → 07-29, and
+  assuming "maintenance = a few hours" is how a site-wide outage gets misfiled as three unrelated
+  local faults (see §5). Memory `deluge-nightly-restart-ptp-intermission`.
 - **Everything stalled, "skipping tracker announce (unreachable)", ~0 peers** → Deluge started
   before gluetun finished rebuilding the tunnel. Cure: stop then start deluge *after* the VPN
   settles. Memory `deluge-stale-tun0-bind`.
@@ -296,6 +298,19 @@ matches what the ratio dictates (disabled while ratio > threshold).
 leak paths are documented in memories `ptp-ratio-webhook-leak` (fixed) and
 `ptp-ratio-search-rss-leak` (knowingly left unplugged — the BP loop absorbs it while ratio > 2.0;
 mention it only if the ratio is actually falling).
+
+`tail -15` shows one run. **Also scan the whole window for stats-bar parse errors**, because a
+run of them dates a PTP Intermission and explains §3 and §5 in one shot (see §5's table):
+
+```bash
+/usr/bin/ssh synology 'sudo -n grep -c "Could not parse the PTP stats bar" /volume2/docker-ssd/logs/ptp_ratio.log
+sudo -n grep "Could not parse the PTP stats bar" /volume2/docker-ssd/logs/ptp_ratio.log | head -1
+sudo -n grep "Could not parse the PTP stats bar" /volume2/docker-ssd/logs/ptp_ratio.log | tail -1'
+```
+
+One or two isolated days = transient. A contiguous run of them = PTP was down for that whole
+period; report it as an outage window, not as a script fault, and expect the `up` figure either
+side of it to be flat (Jul 2026: +3.18 GiB across 13 days, +43.31 GiB the day after recovery).
 
 Also worth a glance: `logs/ptp_dead_torrents.log` — the trumped/deleted-torrent reaper.
 
@@ -414,18 +429,35 @@ sudo -n sh -c "tail -n 4000 $lp" | grep -c "got message"'
 > enough to drop the ssh connection (see §0). Read the log file directly, as above.
 
 `PassThePopcorn connected=True healthy=True`, `#ptp-announce monitoring=True`, and a healthy
-announce count (**247 per 4000 lines on 2026-08-06**) = the feed is fine and any zero-release days
-were a genuine **freeleech drought**, which is normal and outside your control. PTP freeleech
-arrives in waves.
+announce count (**247 per 4000 lines on 2026-08-06**) = the feed is fine *now*. Zero-release days
+are then usually a **freeleech drought** — normal and outside your control, PTP freeleech arrives
+in waves.
+
+**But rule out an Intermission before calling a long zero-run a drought.** The 2026-07-18 → 07-31
+gap was originally recorded here as a drought; it was not. PTP was **down for about two weeks**
+(Intermission), which is why nothing was announced. The tell is that a site-wide outage moves
+three signals at once, and each one alone looks like a different local fault:
+
+| Signal during Jul 18–29 | Looks like | Actually |
+|---|---|---|
+| autobrr: 0 releases | freeleech drought | nothing to announce |
+| `ptp_ratio.log`: 12 × `Could not parse the PTP stats bar (page layout changed?)` | PTP changed their HTML | maintenance page, not the site |
+| PTP upload credit: **+3.18 GiB in 13 days**, then +43.31 GiB the day after | seeding/announce fault (cf. `ptp-hnr-after-outage`) | no tracker to announce to |
+
+Check `ptp_ratio.log` for a run of stats-bar parse errors covering the same dates — that is the
+cheapest Intermission confirmation, and §4 reads that log anyway. Note the trap: **that
+cross-check is itself broken during the outage**, so a silent `ptp_ratio` proves nothing; look for
+the *errors*, not for health. Upload credit flatlining across the window is the corroborating
+number.
 
 Note the asymmetry: this proves the feed is healthy **now**, and — as far back as the log
 reaches — that announces were arriving while zero releases matched. It cannot prove anything
 about a zero run older than the container's last recreation (see §0). For 2026-07-18→31, only
-Jul 28 onward was verifiable this way; Jul 18–27 rests on the ratio and Radarr cross-checks.
-Say which part you actually verified.
+Jul 28 onward was verifiable this way. Say which part you actually verified.
 
 **Only escalate a zero run when** `connected=False`, `monitoring=False`, or the last-hour
-announce count is 0. Then it is the IRC feed, and the filter is starved.
+announce count is 0 — *and* the Intermission check above came back clean. Otherwise it is the
+IRC feed, and the filter is starved.
 
 Second cross-check for a long zero run — did Radarr keep grabbing anyway?
 
@@ -944,9 +976,11 @@ one script (`jellyfin-nfo-refresh.sh` alone invokes three).
 
 Nothing else in this document checks that the *code* on the NAS is the code in git. It has
 already drifted once: `ptp_ratio.py` on the NAS was the Jun 25 build, missing repo commit
-`fc28e48` (Jul 20, "skip run quietly when PTP is in Intermission") — so the graceful
-Intermission handling §4 assumes is in place was **never actually deployed**, and a PTP
-maintenance window still errors the run. Nothing surfaced that for six weeks.
+`fc28e48` (Jul 20, "skip run quietly when PTP is in Intermission") — so the graceful Intermission
+handling §4 assumes is in place was **never actually deployed**. That is not cosmetic: PTP
+Intermissions run for **weeks**, and the undeployed fix is the difference between 12 quiet skips
+and the 12 `[ERROR]` days that made §4's log useless as the cross-check §5 was leaning on.
+Nothing surfaced the drift for six weeks.
 
 Run this from the **laptop** (it needs both sides):
 
@@ -1210,7 +1244,8 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | PTP | ratio 2.4761, up 2463 GiB / down 995 GiB, BP 8.86 M, leak covered |
 | autobrr filters | 1 enabled · 2 disabled · 3 disabled |
 | autobrr lifetime | total 3045 · push_approved 2795 · push_error 282 (**all June 2026, none since**; 276 = filter-2 Deluge connect, 6 = filter 1) · filter_rejected 0 |
-| autobrr cadence | 17–45/day Jun 20 → Jul 17, **zero Jul 18–31**, resumed Aug 1 (drought, IRC healthy) |
+| autobrr cadence | 17–45/day Jun 20 → Jul 17, **zero Jul 18–31**, resumed Aug 1 — **PTP Intermission**, a ~2-week site outage (originally misrecorded here as a freeleech drought) |
+| PTP Intermission Jul 2026 | 2026-07-18 → 07-29: 12 × stats-bar parse errors in `ptp_ratio.log`, upload credit +3.18 GiB in 13 days, autobrr silent. Recovered on its own Jul 30 |
 | Radarr / Sonarr / Prowlarr health | `[]` · `[]` · `[]` |
 | Radarr history · queue | 9486 lifetime · 0 queued |
 | Sonarr history | 3892 lifetime, last import 2026-08-03 |
