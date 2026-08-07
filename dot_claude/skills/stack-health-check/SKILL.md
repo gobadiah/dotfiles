@@ -1,6 +1,6 @@
 ---
 name: stack-health-check
-description: Monthly end-to-end health audit of the Synology docker-ssd media stack — containers, VPN/Deluge, the *arrs, autobrr/PTP, tubesync, Jellyfin playback & transcoding, Bazarr + AI subtitles, tracearr history continuity, scheduled jobs, backups and capacity. Use when the user asks for the monthly stack check, a stack health report, or "is everything still working".
+description: Monthly end-to-end health audit of the Synology docker-ssd media stack — containers, VPN/Deluge, the *arrs, autobrr/PTP, tubesync, Jellyfin playback & transcoding, Bazarr + AI subtitles, tracearr history continuity, scheduled jobs and the deployed script layer (repo-vs-NAS drift), backups and capacity. Use when the user asks for the monthly stack check, a stack health report, or "is everything still working".
 user-invocable: true
 allowed-tools:
   - Bash
@@ -11,7 +11,8 @@ allowed-tools:
 
 Replaces the manual monthly click-through of every web UI. Run every section, collect the
 verdicts, and finish with the report in [§14](#14-report-format). Every command below was
-executed live on 2026-08-06 and returns what it claims to return.
+executed live on 2026-08-06 (§11's script-layer checks on 2026-08-07) and returns what it claims
+to return.
 
 **Rules of engagement**
 
@@ -835,37 +836,57 @@ One more subtitle trap to verify has not regressed: Japanese subs showing up as 
 Jellyfin (`.hi` SDH suffix collides with ISO `hi`). Bazarr's `hi_extension` must be `sdh`.
 Memory `jellyfin-japanese-as-hindi-subs`.
 
-## 11. Scheduled jobs — the automation layer
+## 11. Scheduled jobs and the script layer
 
-DSM Task Scheduler runs these as root. Check both that each **ran recently** and that it ran
-**cleanly** — the two failure modes are different.
+`/volume2/docker-ssd/scripts/` is the automation layer — ~25 scripts deployed from the `~/scripts`
+git repo, run by DSM Task Scheduler as root. **Three questions fail independently**, so ask all
+three: **(a)** did each job run, and run cleanly · **(b)** is DSM still configured to run it ·
+**(c)** is the code on the NAS the code in the repo.
+
+### 11.1 Job logs — enumerate, never hard-code
 
 ```bash
 /usr/bin/ssh synology 'cd /volume2/docker-ssd/logs
 RE="^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:,.]+ +\[?(ERROR|CRITICAL)\]?( |$)"
-MONTHS="^2026-0[78]"        # <-- widen/shift to the audit window
-for f in deluge_cleanup ptp_ratio ptp_dead_torrents space_cleanup tubesync_queue_guard \
-         tubesync_members_only_sweep recsys mentour_rewatch container_crash_watcher \
-         jellyfin-nfo-refresh youtube_episode_renumber subtitle_translate kindle_read_sync \
-         postgres-backup acl-guard; do
-  [ -f "$f.log" ] || { printf "%-28s MISSING\n" "$f"; continue; }
-  last=$(sudo -n stat -c %y "$f.log" | cut -c1-16)
-  n=$(sudo -n grep -E "$RE" "$f.log" 2>/dev/null | grep -cE "$MONTHS")
-  worst=$(sudo -n grep -E "$RE" "$f.log" 2>/dev/null | grep -oE "$MONTHS-[0-9]{2}" | sort | uniq -c | sort -rn | head -1 | tr -s " ")
-  printf "%-28s last=%s  errs=%-5s worst:%s\n" "$f" "$last" "$n" "${worst:- none}"
+MONTHS="^2026-0[78]"                                        # <-- shift to the audit window
+RETIRED=" ptp_bp_tracker ptp_ratio_filter mentour_season_fix radarr_list_filter "  # folded in / one-offs
+NOW=$(date +%s)
+for p in $(sudo -n sh -c "ls -1 /volume2/docker-ssd/logs/*.log" | sed "s|.*/||; s|\.log$||" \
+           | grep -vE "^icloudpd-sync-[0-9]{8}$|^space_cleanup_needs_manual$"); do
+  case "$RETIRED" in *" $p "*) tag="[retired]";; *) tag="";; esac
+  age=$(( (NOW - $(sudo -n stat -c %Y "$p.log")) / 3600 ))
+  last=$(sudo -n stat -c %y "$p.log" | cut -c1-16)
+  n=$(sudo -n grep -E "$RE" "$p.log" 2>/dev/null | grep -cE "$MONTHS")
+  worst=$(sudo -n grep -E "$RE" "$p.log" 2>/dev/null | grep -oE "$MONTHS-[0-9]{2}" | sort | uniq -c | sort -rn | head -1 | tr -s " ")
+  printf "%-30s last=%s %5sh  errs=%-5s worst:%s %s\n" "$p" "$last" "$age" "$n" "${worst:- none}" "$tag"
 done'
 ```
 
-Two traps this regex exists to avoid — **do not simplify it to `grep -c ERROR`**:
+Three traps this command exists to avoid:
 
 1. It must anchor on the **log-level field**, not the word. `deluge_cleanup.log` is full of
    `[INFO] ERROR/RECHECK: …` lines — normal operation, since its whole job is reacting to
-   erroring torrents. A naive grep reports ~1600 "errors" that are not errors.
+   erroring torrents. A naive `grep -c ERROR` reports ~1600 "errors" that are not errors.
 2. It must be **scoped to the audit window** and **bucketed by day**. These logs span months, and
    the shape matters far more than the total: 772 errors sounds alarming, but 769 of them landed
    on a single day (2026-07-27) and the rest of the month is 0–3/day. **A spike day is one
    incident to investigate; a steady trickle is background noise.** Always read `worst:` before
    reacting to `errs=`.
+3. It must **enumerate the log directory**, not walk a hard-coded list. The list this section
+   used until 2026-08-07 named 15 jobs; there were 25 logs. Four live, actively-writing jobs —
+   `cwa_ui_patch` · `kindle_calibre_metadata` · `kindle_koreader_status` ·
+   `kindle_syncthing_unblock` — were therefore invisible to every audit, and a newly added script
+   would have stayed invisible until someone remembered to edit the list. Enumerating inverts
+   that: a job you don't recognise shows up as a row, and the only thing needing maintenance is
+   the small `RETIRED` allowlist of logs left behind by merged-away scripts.
+
+**A stale log is not automatically a dead job — check whether the script was folded into another
+one first.** `radarr_list_filter.log` last moved 2026-06-25 and looks abandoned, but the script is
+alive: `space_cleanup.py` `import radarr_list_filter as rlf` and runs its sweep inside the daily
+05:00 task, logging to `space_cleanup.log` (`emailed 'NAS daily — list-filter N'`, last hit
+2026-07-14). Its own log is a legacy artifact from before the fold, which is why it sits in
+`RETIRED`. Confirm the same way before reporting any stale log as a failure:
+`sudo -n grep -l <name> /volume2/docker-ssd/scripts/*.py`.
 
 A spike in `deluge_cleanup` specifically (hundreds of `[ERROR] ERROR processing … ` in one run)
 is the mass-error signature from §3 — PTP Intermission or a gluetun tunnel drop, which triggers
@@ -873,18 +894,124 @@ the script's own systemic-error self-restart. Confirm which, then move on; it is
 
 Expected cadence: `deluge_cleanup` daily 07:00 · `ptp_ratio` daily 04:00 · `space_cleanup` daily
 05:00 · `postgres-backup` daily 03:00 · `recsys` daily 09:00 · `mentour_rewatch` daily 08:00 ·
-`jellyfin-nfo-refresh` (+ `youtube_episode_renumber` + `tubesync_members_only_sweep`) every 15 min ·
-`tubesync_queue_guard` hourly · `container_crash_watcher` continuous · `icloudpd-sync` daily 04:30.
+`jellyfin-nfo-refresh` (+ `youtube_episode_renumber` + `tubesync_members_only_sweep` +
+`tubesync_queue_guard`) every 15 min · `container_crash_watcher` continuous ·
+`icloudpd-sync` daily 04:30 · one "Kindle Read Sync" task hourly at :05 chaining five scripts
+(`kindle_syncthing_unblock` → `kindle_read_sync` → `kindle_koreader_status` →
+`kindle_calibre_metadata` → `cwa_ui_patch`) — so those five logs move together, and one of them
+lagging the other four means that script is failing, not that the task stopped.
+On-demand, no schedule: `ptp_dead_torrents` (the `/ptp-dead-torrents` skill),
+`compose-reconcile`, `acl-guard` (event-driven watchdog).
 
-**Flag**: a log whose mtime is older than its cadence — the DSM task is disabled or erroring
-before it can write. Cross-check:
+**Flag**: a log whose `age` exceeds its cadence by a wide margin — the DSM task is disabled, or
+the script errors before it can write. Cross-check against §11.2 (is a task still configured?)
+and §11.3 (is anything still calling it?) before concluding it is dead.
+
+### 11.2 DSM tasks — read the status, not just the state
+
+The old one-liner (`grep -E "Name:|State:" | paste - -`) threw away the most useful field: DSM
+records each task's **last exit status**. Parse the whole record instead:
 
 ```bash
-/usr/bin/ssh synology 'sudo -n /usr/syno/bin/synoschedtask --get | grep -E "Name:|State:" | paste - -'
+/usr/bin/ssh synology 'sudo -n /usr/syno/bin/synoschedtask --get 2>&1 | python3 -c "
+import sys, re
+cur = {}; rows = []
+for line in sys.stdin:
+    m = re.match(r\"\s*([A-Za-z ]+):\s*(?:\[(.*)\]|(.*))\s*$\", line.rstrip())
+    if not m: continue
+    k = m.group(1).strip(); v = (m.group(2) if m.group(2) is not None else m.group(3)).strip()
+    if k == \"User\" and cur: rows.append(cur); cur = {}
+    cur[k] = v
+if cur: rows.append(cur)
+print(\"%-34s %-9s %-13s %s\" % (\"task\", \"state\", \"status\", \"command\"))
+for r in rows:
+    print(\"%-34s %-9s %-13s %s\" % (r.get(\"Name\",\"?\")[:34], r.get(\"State\",\"?\"),
+                                    r.get(\"Status\",\"-\"), r.get(\"Command\",\"\")[:70]))
+"'
 ```
-Expected `disabled`: `Personal videos`, `Docker`, `PTP Archiver`. Everything else `enabled`.
 
-Two specific ones worth reading rather than counting:
+**PASS**: every enabled script task `Success`. Expected `disabled`: `Personal videos`, `Docker`,
+`PTP Archiver` (the last one also carries a stale `Error(1)` — it is disabled, so ignore it).
+`Not Available` is normal for DSM's own built-in tasks (snapshots, updater, C2), which never
+report a status.
+
+Note the `Command` field is **truncated at 70 chars here and backslash-escaped** for DSM's own
+tasks (`\/\u\s\r\/…`). Never grep it for a script name without `tr -d "\\\\"` first, and never
+conclude "no task runs this script" from the truncated column — several tasks chain more than
+one script (`jellyfin-nfo-refresh.sh` alone invokes three).
+
+### 11.3 Script inventory — repo vs NAS
+
+Nothing else in this document checks that the *code* on the NAS is the code in git. It has
+already drifted once: `ptp_ratio.py` on the NAS was the Jun 25 build, missing repo commit
+`fc28e48` (Jul 20, "skip run quietly when PTP is in Intermission") — so the graceful
+Intermission handling §4 assumes is in place was **never actually deployed**, and a PTP
+maintenance window still errors the run. Nothing surfaced that for six weeks.
+
+Run this from the **laptop** (it needs both sides):
+
+```bash
+cd ~/scripts && {
+  for f in *.py *.sh; do printf "%s %s\n" "$(md5 -q "$f")" "$f"; done
+  echo "--MARK--"
+  /usr/bin/ssh synology 'sudo -n sh -c "cd /volume2/docker-ssd/scripts && md5sum *.py *.sh"' | awk '{print $1, $2}'
+} | awk -v laptop="borg-backup.sh compose_deploy.sh linkcheck.sh" '
+  /^--MARK--$/ {side=1; next}
+  side==0 {l[$2]=$1; next}
+  {n[$2]=$1}
+  END {
+    split(laptop, L, " "); for (i in L) ok[L[i]]=1
+    for (f in l) if (!(f in n) && !(f in ok) && f !~ /_patch\.py$/) print "LOCAL-ONLY  ", f
+    for (f in n) if (!(f in l))                                   print "NAS-ONLY    ", f, "(not in git — unbacked-up)"
+    for (f in l) if ((f in n) && l[f] != n[f])                    print "DRIFT       ", f
+  }' | sort
+```
+
+- **`DRIFT`** — the repo and the NAS disagree. Diff it and establish the direction before doing
+  anything: `git -C ~/scripts log --oneline -3 -- <file>` against the NAS copy's mtime. A repo
+  that is *ahead* means a fix was committed and never deployed; a NAS copy that is ahead means
+  someone hot-fixed in place and it is not backed up. **`compose_deploy.sh` does not deploy
+  scripts** — it only handles `docker-compose.yaml`. Scripts go over the base64 pipe, because
+  `scp` to this host fails outright (memory `synology-script-deployment`):
+  ```bash
+  base64 -i ~/scripts/<f>.py | /usr/bin/ssh synology \
+    'base64 -d > /tmp/<f>.py && sudo -n cp /tmp/<f>.py /volume2/docker-ssd/scripts/<f>.py'
+  ```
+  Then re-run the md5 block above to confirm. Deploying is a *change*, so propose it in the
+  report rather than doing it — §11 is read-only like everything else here.
+- **`NAS-ONLY`** — running code that exists nowhere in git. Pull it back into `~/scripts` and
+  commit it. Baseline: `subtitle_credit_sweep.py` (deployed 2026-08-02, in no repo, referenced by
+  no task and no other script — decide whether to adopt it or delete it).
+- **`LOCAL-ONLY`** — normally fine. The `laptop=` allowlist covers the three scripts that run on
+  the MacBook by design, and `*_patch.py` covers the one-shot Kindle patches. Anything else
+  appearing here is a script you wrote and never deployed.
+
+Then the reachability question — is each deployed script actually invoked by *something*, either
+a DSM task or another script?
+
+```bash
+/usr/bin/ssh synology 'D=/volume2/docker-ssd/scripts
+sudo -n /usr/syno/bin/synoschedtask --get 2>&1 | tr -d "\\\\" > /tmp/_t.txt
+for s in $(sudo -n sh -c "ls -1 $D/*.py $D/*.sh" | sed "s|.*/||"); do
+  hit=$( { cat /tmp/_t.txt; sudo -n sh -c "grep -h . \$(ls $D/*.py $D/*.sh | grep -v /$s\$)"; } | grep -c "$s" )
+  [ "$hit" -eq 0 ] && echo "ORPHAN $s"
+done; rm -f /tmp/_t.txt'
+```
+
+**The `grep -v /$s$` is the whole trick** — without it every script matches its own name (in a
+docstring, a log path, an `argparse` prog) and the check reports exactly one orphan and looks
+like it passed. Note it also counts *module imports*, not just shell invocations, which is what
+keeps `radarr_list_filter.py` correctly off the list (§11.1).
+
+An `ORPHAN` is deployed code nothing calls. Baseline 2026-08-07 is five, four of them legitimate:
+`tracearr_playback_audit.py` (run by hand / §13), `ptp_dead_torrents.py` (the
+`/ptp-dead-torrents` skill), `tracearr_plex_backfill.py` (one-off 2016–2026 import),
+`kindle_syncthing_relay.py` (a container entrypoint, not a scheduled job). The fifth,
+`subtitle_credit_sweep.py`, is orphaned *and* untracked *and* has no log — the one to resolve.
+The finding to chase in future runs is the combination **orphan + a log that used to move**:
+that is a job that silently stopped.
+
+Two specific logs worth reading rather than counting:
 
 ```bash
 /usr/bin/ssh synology 'echo "--- space_cleanup needs-manual ---"; sudo -n cat /volume2/docker-ssd/logs/space_cleanup_needs_manual.log
@@ -1094,7 +1221,11 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | AI subtitles | done 102, failures 6, 8-provider baseline |
 | postgres dump | `dump-20260806.sql.gz`, 176 MB, 03:00, 30 retained |
 | Scheduled-job errors (Jul–Aug) | all 0–12 except `deluge_cleanup` 772 — **769 of them on 2026-07-27 alone** (one mass-error incident, self-healed) |
-| DSM tasks | all enabled except `Personal videos`, `Docker`, `PTP Archiver` |
+| Job logs enumerated | 25 basenames (excl. rotated `icloudpd-sync-*`), 4 `RETIRED` |
+| DSM tasks | 27 total; all enabled except `Personal videos`, `Docker`, `PTP Archiver`; every enabled script task `Success` |
+| Scripts deployed | 25 in `/volume2/docker-ssd/scripts/` (+ a stale `deluge_cleanup.py.bak-20260727`) |
+| Script drift (2026-08-07) | 1 `DRIFT` — `ptp_ratio.py`, repo **ahead** by `fc28e48` (Jul 20 Intermission handling) never deployed · 1 `NAS-ONLY` — `subtitle_credit_sweep.py` |
+| Script orphans | 5, of which 4 expected (audit / skill-driven / one-off / entrypoint); `subtitle_credit_sweep.py` is the odd one |
 
 ## 16. Related memories
 
