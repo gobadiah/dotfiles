@@ -980,8 +980,14 @@ cd ~/scripts && {
   Then re-run the md5 block above to confirm. Deploying is a *change*, so propose it in the
   report rather than doing it — §11 is read-only like everything else here.
 - **`NAS-ONLY`** — running code that exists nowhere in git. Pull it back into `~/scripts` and
-  commit it. Baseline: `subtitle_credit_sweep.py` (deployed 2026-08-02, in no repo, referenced by
-  no task and no other script — decide whether to adopt it or delete it).
+  commit it. Baseline is now **empty**: the one instance, `subtitle_credit_sweep.py`, was
+  committed 2026-08-07 (`de8cca4`). Note what it turned out to be, because the same judgement
+  recurs — a **completed one-off migration**, not a job that stopped. It backfilled the AI-credit
+  cue into subtitles written before `subtitle_translate.py` began inserting it inline
+  (`AI_CREDIT`, `subtitle_translate.py:389`). Such a script belongs in git (it edited the live
+  library; that edit needs a record) but must **not** be scheduled or given a log — that would
+  present a finished migration as a running job and guarantee a false "stale log" finding every
+  month afterwards. Commit it, mark it in the header, and let §11.3 list it as an expected orphan.
 - **`LOCAL-ONLY`** — normally fine. The `laptop=` allowlist covers the three scripts that run on
   the MacBook by design, and `*_patch.py` covers the one-shot Kindle patches. Anything else
   appearing here is a script you wrote and never deployed.
@@ -1003,13 +1009,15 @@ docstring, a log path, an `argparse` prog) and the check reports exactly one orp
 like it passed. Note it also counts *module imports*, not just shell invocations, which is what
 keeps `radarr_list_filter.py` correctly off the list (§11.1).
 
-An `ORPHAN` is deployed code nothing calls. Baseline 2026-08-07 is five, four of them legitimate:
-`tracearr_playback_audit.py` (run by hand / §13), `ptp_dead_torrents.py` (the
-`/ptp-dead-torrents` skill), `tracearr_plex_backfill.py` (one-off 2016–2026 import),
-`kindle_syncthing_relay.py` (a container entrypoint, not a scheduled job). The fifth,
-`subtitle_credit_sweep.py`, is orphaned *and* untracked *and* has no log — the one to resolve.
-The finding to chase in future runs is the combination **orphan + a log that used to move**:
-that is a job that silently stopped.
+An `ORPHAN` is deployed code nothing calls. Baseline 2026-08-07 is **five, all expected**:
+`tracearr_playback_audit.py` (run by hand / §13) · `ptp_dead_torrents.py` (the
+`/ptp-dead-torrents` skill) · `tracearr_plex_backfill.py` (one-off 2016–2026 import) ·
+`subtitle_credit_sweep.py` (one-off AI-credit backfill, see above) ·
+`kindle_syncthing_relay.py` (a container entrypoint, not a scheduled job).
+
+So a bare orphan is not a finding here. The finding to chase is the combination **orphan + a log
+that used to move and stopped** — a job that silently died — or **orphan + `NAS-ONLY`**, which is
+untracked code of unknown provenance.
 
 Two specific logs worth reading rather than counting:
 
@@ -1224,8 +1232,8 @@ Compare against this; if the stack has legitimately moved on, update these numbe
 | Job logs enumerated | 25 basenames (excl. rotated `icloudpd-sync-*`), 4 `RETIRED` |
 | DSM tasks | 27 total; all enabled except `Personal videos`, `Docker`, `PTP Archiver`; every enabled script task `Success` |
 | Scripts deployed | 25 in `/volume2/docker-ssd/scripts/` (+ a stale `deluge_cleanup.py.bak-20260727`) |
-| Script drift (2026-08-07) | 1 `DRIFT` — `ptp_ratio.py`, repo **ahead** by `fc28e48` (Jul 20 Intermission handling) never deployed · 1 `NAS-ONLY` — `subtitle_credit_sweep.py` |
-| Script orphans | 5, of which 4 expected (audit / skill-driven / one-off / entrypoint); `subtitle_credit_sweep.py` is the odd one |
+| Script drift (2026-08-07) | 1 `DRIFT` — `ptp_ratio.py`, repo **ahead** by `fc28e48` (Jul 20 Intermission handling) never deployed · `NAS-ONLY` now 0 (`subtitle_credit_sweep.py` committed as `de8cca4`) |
+| Script orphans | 5, **all expected** (2 hand/skill-run, 2 completed one-offs, 1 container entrypoint) |
 
 ## 16. Related memories
 
