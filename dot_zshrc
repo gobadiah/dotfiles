@@ -142,6 +142,8 @@ if [[ "$TERM_PROGRAM" == "iTerm.app" ]]; then
   ITERM_DEFAULT_PROFILE=Personal
 
   function iterm_profile() {
+    # never emit escape sequences into captured (non-interactive) output
+    [[ -o interactive ]] || return 0
     printf "\033]1337;SetProfile=%s\a" "$1"
   }
   alias work="iterm_profile Work"
@@ -150,10 +152,17 @@ if [[ "$TERM_PROGRAM" == "iTerm.app" ]]; then
 
   function ssh() {
     local arg profile
-    for arg in "$@"; do
-      profile="${ITERM_HOST_PROFILES[$arg]}"
-      [[ -n "$profile" ]] && break
-    done
+    # Tools that snapshot shell functions (e.g. Claude Code) re-define this
+    # function in shells where ITERM_HOST_PROFILES was never set. In zsh a
+    # subscript on a non-associative variable is evaluated as ARITHMETIC, so an
+    # argument like '/volume1' parses as a division and aborts with
+    # "division by zero". Only do the lookup when the map really is an assoc.
+    if [[ ${(t)ITERM_HOST_PROFILES} == assoc* ]]; then
+      for arg in "$@"; do
+        profile="${ITERM_HOST_PROFILES[$arg]}"
+        [[ -n "$profile" ]] && break
+      done
+    fi
     [[ -z "$profile" ]] && { command ssh "$@"; return }
     iterm_profile "$profile"
     command ssh "$@"
