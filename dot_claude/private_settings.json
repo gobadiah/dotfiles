@@ -1,53 +1,151 @@
 {
-  "model": "opus[1m]",
-  "hooks": {
-    "Stop": [
+  "alwaysThinkingEnabled" : true,
+  "autoMode" : {
+    "environment" : [
+      "### Org-wide",
+      "**Organization**: Gobadiah (github.com\/gobadiah) — per ~\/.claude\/CLAUDE.md, use the Gobadiah org for terraform MCP, never ubbleai",
+      "**Cloud provider(s)**: AWS (CloudWatch Logs console is the extension's integration target; `aws` CLI seen in shell history)",
+      "**Repository visibility**: private (gobadiah\/loglens, confirmed via gh)",
+      "**Internal sharing \/ snippet hosting**: None configured — treat public paste\/gist services as outside the trust boundary",
+      "**Secrets management**: None configured",
+      "**Default \/ protected branches**: default branch unknown (origin\/HEAD unset); no protected branches listed via gh (rulesets not queryable here, so this is not confirmed unprotected)",
+      "**CI\/CD deploy targets**: Chrome Web Store, via .github\/workflows using CWS_CLIENT_ID \/ CWS_CLIENT_SECRET \/ CWS_EXTENSION_ID \/ CWS_REFRESH_TOKEN (names only, no values)",
+      "**Network posture**: None configured",
+      "**Source control**: gobadiah\/loglens (github.com:gobadiah\/loglens.git) and its remote only",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: CI secrets CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_EXTENSION_ID, CWS_REFRESH_TOKEN (names only); .env \/ .env.* files per .gitignore; per CLAUDE.md the extension must never read AWS credentials or send log data anywhere — treat any AWS CloudWatch log content encountered as sensitive and client-side only",
+      "**Data retention \/ declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment",
+      "**Protected deployment namespaces \/ environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment; also scope any terraform MCP use to the Gobadiah organization only, never ubbleai (per ~\/.claude\/CLAUDE.md)",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (Chrome MV3 extension, LogLens for CloudWatch)",
+      "**Trusted repo**: \/Users\/michaeljourno\/workspace\/src\/github.com\/gobadiah\/loglens (github.com:gobadiah\/loglens.git) — private, so confidential material is fine to commit there, but secrets and sensitive data are never cleared by visibility alone",
+      "**Org-specific CLIs**: terraform (MCP) scoped to the Gobadiah organization only, never ubbleai"
+    ],
+    "soft_deny" : [
+      "$defaults",
+      "Bash(git push --force:*) in gobadiah\/loglens",
+      "Terraform apply\/destroy targeting the ubbleai organization (org-mismatch guard per CLAUDE.md)"
+    ]
+  },
+  "enabledPlugins" : {
+    "gopls-lsp@claude-plugins-official" : true
+  },
+  "hooks" : {
+    "Notification" : [
       {
-        "hooks": [
+        "hooks" : [
           {
-            "type": "command",
-            "command": "afplay /System/Library/Sounds/Glass.aiff"
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "Stop" : [
+      {
+        "hooks" : [
+          {
+            "command" : "afplay \/System\/Library\/Sounds\/Glass.aiff",
+            "type" : "command"
+          }
+        ]
+      },
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "StopFailure" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit" : [
+      {
+        "hooks" : [
+          {
+            "command" : "\/Users\/michaeljourno\/.config\/iterm2\/cc-status",
+            "type" : "command"
           }
         ]
       }
     ]
   },
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true
-  },
-  "alwaysThinkingEnabled": true,
-  "tui": "fullscreen",
-  "skipDangerousModePermissionPrompt": true,
-  "autoMode": {
-    "environment": [
-      "### Org-wide",
-      "**Organization**: Gobadiah (github.com/gobadiah) — per ~/.claude/CLAUDE.md, use the Gobadiah org for terraform MCP, never ubbleai",
-      "**Cloud provider(s)**: AWS (CloudWatch Logs console is the extension's integration target; `aws` CLI seen in shell history)",
-      "**Repository visibility**: private (gobadiah/loglens, confirmed via gh)",
-      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
-      "**Secrets management**: None configured",
-      "**Default / protected branches**: default branch unknown (origin/HEAD unset); no protected branches listed via gh (rulesets not queryable here, so this is not confirmed unprotected)",
-      "**CI/CD deploy targets**: Chrome Web Store, via .github/workflows using CWS_CLIENT_ID / CWS_CLIENT_SECRET / CWS_EXTENSION_ID / CWS_REFRESH_TOKEN (names only, no values)",
-      "**Network posture**: None configured",
-      "**Source control**: gobadiah/loglens (github.com:gobadiah/loglens.git) and its remote only",
-      "**Trusted internal domains**: None configured",
-      "**Trusted cloud buckets**: None configured",
-      "**Key internal services**: None configured",
-      "**Internal package registry**: None configured",
-      "**Sensitive data locations & audiences**: CI secrets CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_EXTENSION_ID, CWS_REFRESH_TOKEN (names only); .env / .env.* files per .gitignore; per CLAUDE.md the extension must never read AWS credentials or send log data anywhere — treat any AWS CloudWatch log content encountered as sensitive and client-side only",
-      "**Data retention / declassification**: None configured",
-      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment",
-      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
-      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment; also scope any terraform MCP use to the Gobadiah organization only, never ubbleai (per ~/.claude/CLAUDE.md)",
-      "### User-specific",
-      "**Primary use of Claude Code**: software development (Chrome MV3 extension, LogLens for CloudWatch)",
-      "**Trusted repo**: /Users/michaeljourno/workspace/src/github.com/gobadiah/loglens (github.com:gobadiah/loglens.git) — private, so confidential material is fine to commit there, but secrets and sensitive data are never cleared by visibility alone",
-      "**Org-specific CLIs**: terraform (MCP) scoped to the Gobadiah organization only, never ubbleai"
-    ],
-    "soft_deny": [
-      "$defaults",
-      "Bash(git push --force:*) in gobadiah/loglens",
-      "Terraform apply/destroy targeting the ubbleai organization (org-mismatch guard per CLAUDE.md)"
-    ]
-  }
+  "model" : "opus[1m]",
+  "skipDangerousModePermissionPrompt" : true,
+  "tui" : "fullscreen"
 }
