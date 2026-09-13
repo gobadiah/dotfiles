@@ -148,6 +148,15 @@ repositories:
 
 # Alternate Borg remote executable. Defaults to "borg".
 # remote_path: borg1
+#
+# DSM 7.4.1 (installed 2026-09-13) dropped /usr/local/bin from the PATH that
+# non-interactive ssh sessions get -- it is now just /usr/bin:/bin:/usr/sbin:
+# /sbin. borg lives at /usr/local/bin/borg (a symlink into the SynoCommunity
+# package), so "borg serve" stopped resolving and every run died with
+# "Connection closed by remote host. Is borg working on the server?" and
+# exit 81. The binary, the package and the repo were all fine. Naming the
+# absolute path here is immune to whatever the remote PATH happens to be.
+remote_path: /usr/local/bin/borg
 
 # Any paths matching these patterns are included/excluded from
 # backups. Recursion root patterns ("R ...") are effectively the same
