@@ -304,10 +304,12 @@ PY
 `Leak … <= BP-credit earned … covered, no alert`; the `PTP Freeleech → Deluge` filter state
 matches what the ratio dictates (disabled while ratio > threshold).
 
-**Flag**: ratio trending *down* month over month, or a `Leak … NOT covered` line. The two known
-leak paths are documented in memories `ptp-ratio-webhook-leak` (fixed) and
-`ptp-ratio-search-rss-leak` (knowingly left unplugged — the BP loop absorbs it while ratio > 2.0;
-mention it only if the ratio is actually falling).
+**Flag**: ratio trending *down* month over month, a `Leak … NOT covered` line, BP balance heading
+toward the 5M reserve, or BP/day well under ~180k (the seed budget in `deluge_cleanup` Rule 5 trims
+seeding to 8 TiB from 2026-09-14, expected to settle income ~180k/day). Since the 2026-09-13 rework
+(memory `ptp-freeleech-rework`) list-sourced PTP grabs are the INTENDED, BP-funded intake (bucket
+`list`), not a leak; the old leak notes `ptp-ratio-webhook-leak` / `ptp-ratio-search-rss-leak` are
+history.
 
 `tail -15` shows one run. **Also scan the whole window for stats-bar parse errors**, because a
 run of them dates a PTP Intermission and explains §3 and §5 in one shot (see §5's table):
@@ -369,10 +371,10 @@ for m,n in err.most_common(6): print(n, m)
 "'
 ```
 
-- **`autobrr-webhook/WEBHOOK` errors on filter 1 (→ Radarr) are the ratio leak.** That webhook
-  adds the movie *and unmonitors it after the grab*; when it fails the movie stays **monitored**
-  and Radarr upgrade-grabs the **non-freeleech** version (memory `ptp-ratio-webhook-leak`).
-  These are the ones to chase.
+- **Filter 1 (→ Radarr) and the `autobrr-webhook` container were RETIRED 2026-09-13** (memory
+  `ptp-freeleech-rework`). If either reappears, someone re-created it — flag it. Intake is now
+  Radarr import lists paced by `ptp_ratio.py` (10 searches/run while BP > 5M reserve); a run log
+  line `Backfill PAUSED` or the "PTP bonus points at reserve" email is the new thing to chase.
 - **`deluge/DELUGE_V2` errors on filter 2 (→ Deluge) are a missed grab, not a leak** — the
   torrent simply never downloaded. Nothing was over-downloaded, so the ratio is unaffected.
 
