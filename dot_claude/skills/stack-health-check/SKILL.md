@@ -33,7 +33,17 @@ SSH alias `synology` (user `michael`, passwordless sudo). Two hard-won invariant
 - Use **`/usr/bin/ssh`** explicitly. The shell's `ssh` wrapper does iTerm profile switching and
   breaks non-interactive use.
 - Docker is **`sudo /usr/local/bin/docker`**. It is not on root's PATH, so `sudo docker` fails
-  with "command not found".
+  with "command not found". This generalises: **both plain ssh and sudo give you only
+  `/usr/bin:/bin:/usr/sbin:/sbin`**, so nothing in `/usr/local/bin` resolves — `docker`,
+  `docker-compose`, `git`, `borg`, `tailscale`, `rclone`, `node`, `npm`, `rg`, `fd`, `bat`,
+  `ffmpeg7`, `python3.12`. Always name them absolutely. `rsync`, `python3`, `sqlite3`, `curl`,
+  `jq`, `ffmpeg` and the coreutils live in `/usr/bin` and are fine.
+  Sudo has always been this way; **plain ssh lost `/usr/local/bin` in the DSM 7.4.1 upgrade on
+  2026-09-13**, which silently broke every hourly borgmatic run (`borg serve` unresolvable →
+  "Connection closed by remote host. Is borg working on the server?", exit 81).
+  Scheduled tasks are unaffected — cron sets its own PATH in `/etc/crontab` which still includes
+  `/usr/local/bin`, so the NAS scripts that call `docker` bare keep working. When auditing, do
+  not "fix" those; they are only broken if you run them over ssh yourself.
 
 Secrets live in `/volume2/docker-ssd/.env` (root:root but **world-readable**, so no sudo needed
 to source it):
