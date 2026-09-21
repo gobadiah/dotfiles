@@ -9,7 +9,7 @@
     <array>
       <string>/usr/bin/caffeinate</string>
       <string>-s</string>
-      <string>/Users/michaeljourno/scripts/borg-backup.sh</string>
+      <string>/Users/michaeljourno/.local/bin/borg-backup.sh</string>
     </array>
     
     <key>StartCalendarInterval</key>

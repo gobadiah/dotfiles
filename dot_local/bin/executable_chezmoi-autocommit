@@ -6,7 +6,7 @@ CHEZMOI_DIR="${CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}"
 # /opt/homebrew/bin, so a bare `chezmoi` would fail every night.
 CHEZMOI="/opt/homebrew/bin/chezmoi"
 
-# Same notification helper as scripts/borg-backup.sh.
+# Same notification helper as ~/.local/bin/borg-backup.sh.
 notify() {
   /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
 }

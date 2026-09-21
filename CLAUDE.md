@@ -56,7 +56,7 @@ source, so an `apply` would have removed borg's upload throttle and saturated th
 Edit templated targets with `chezmoi edit <target>` (which opens the `.tmpl`) followed by
 `chezmoi apply`, never in `$HOME`. Persistent drift in `chezmoi status` is the warning sign.
 
-The nightly run raises a macOS notification (same `osascript` helper as `scripts/borg-backup.sh`)
+The nightly run raises a macOS notification (same `osascript` helper as `~/.local/bin/borg-backup.sh`)
 whenever it finds drift `re-add` could not capture, or when `re-add` itself fails or times out.
 Both are cases where `$HOME` changes are silently not being backed up.
 
@@ -121,7 +121,7 @@ state, `Apple*`/`NS*` window geometry, `SU*` updater state, and the two pointer 
 (`PrefsCustomFolder`, `LoadPrefsFromCustomFolder`) — which is why `bootstrap/run_once_08-iterm.sh`
 exists to seed those before iTerm's first launch.
 
-`scripts/iterm-snapshot.sh` writes the same filtered snapshot on demand — a fallback if
+`~/.local/bin/iterm-snapshot.sh` writes the same filtered snapshot on demand — a fallback if
 "Save changes" ever reverts to Manually.
 
 ## Neovim
