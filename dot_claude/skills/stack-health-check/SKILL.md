@@ -11,17 +11,23 @@ allowed-tools:
 
 Replaces the manual monthly click-through of every web UI. Run every section, collect the
 verdicts, and finish with the report in [§14](#14-report-format). Every command below was
-executed live on 2026-08-06 (§11's script-layer checks on 2026-08-07) and returns what it claims
-to return.
+executed live on 2026-08-06 (§11's script-layer checks on 2026-08-07) and re-validated against
+Jellyfin 12.1 and the json-file log pin on 2026-09-22; it returns what it claims to return.
 
 **Rules of engagement**
 
 - **Read-only.** Nothing here mutates state. Remediation is *proposed* in the report, never
   applied unprompted — the one exception is that you may re-run an idempotent diagnostic.
+- **Read-only includes how you read.** Never open a live SQLite database read-write, even to
+  `SELECT` (use `-readonly`/`mode=ro`, or query a copy), and never cut a `docker logs` stream
+  short (§0). Both look like reads and both have caused multi-hour outages. The hard rules in
+  `~/scripts/CLAUDE.md` apply to every command you improvise here.
+- **Read a service's compose block before calling it down.** `profiles: [donotstart]` means it
+  was parked on purpose.
 - **Don't stop at the first failure.** A red section is a finding, not an abort. Run all 13.
 - **Every verdict needs a number.** "Deluge looks fine" is not a verdict; "1898 torrents,
   0 in Error, 3 tracker errors, incoming connections OK" is.
-- **Compare against [§15 baseline](#15-baseline-recorded-2026-08-06)**, not against your
+- **Compare against [§15 baseline](#15-baseline-recorded-2026-09-22)**, not against your
   intuition. This stack is deliberately unusual in places.
 
 ---
@@ -123,34 +129,44 @@ Compose's expected hashes are printable, which separates this cause from real co
 `sudo docker compose config --hash="*"` vs each container's
 `com.docker.compose.config-hash` label.
 
-**`docker logs --since 720h` does not actually reach back 30 days.** Container logs start at the
-last *recreation*, and watchtower recreates most containers weekly (§1). Observed 2026-08-06:
-autobrr's entire log began 2026-07-28, so a "last 30 days" query covered 9 days. Always print the
-first log line before drawing a conclusion from a log-based count:
+**Never cut a `docker logs` stream short — not with `| head`, not with `timeout`.** On a
+container still using DSM's default `db` log driver, a client disconnecting mid-stream deadlocks
+the driver: the app freezes on its next log line while `docker ps` says `Up (healthy)`, and only
+a Container Manager restart clears it — which itself hangs and takes the **whole stack** down.
+This took Jellyfin down for 7 h on 2026-09-22 (full story in `~/scripts/CLAUDE.md`, memory
+`docker-db-logdriver-wedge`). `docker-compose.yaml` now pins `json-file` on every service, which
+is immune, but a container keeps the driver it was *created* with. So: **let the stream finish
+into a file, then filter the file.** `/volume1` is not writable by `michael`, so redirect under
+`sudo sh -c` (and never stage in `/tmp` — it is RAM):
 
 ```bash
-/usr/bin/ssh synology 'sudo /usr/local/bin/docker logs --since 720h <container> 2>&1 | head -1 | cut -c1-160'
+/usr/bin/ssh synology 'D=/usr/local/bin/docker; P=/volume1/probe-hc.log
+sudo sh -c "$D logs --since 720h <container> > $P 2>&1"
+sudo head -1 $P | cut -c1-160          # first line = how far back the log really reaches
+sudo grep -ci <pattern> $P
+sudo rm -f $P'
 ```
 
-If the window is short, say so in the report rather than reporting the count as a 30-day figure.
-Anything needing true 30-day history must come from a **database or a file log** under
-`/volume2/docker-ssd/logs/`, not from `docker logs`.
+Every `docker logs` command in this document follows that shape. `| grep -c` straight off the
+stream is safe in principle (grep reads to EOF), but anything followed by `head`, or wrapped in
+`timeout`, is not — use the file form everywhere and there is nothing to remember. §1 lists which
+containers are still on `db`; run nothing but the file form against those.
 
-**DSM's Docker uses the `db` log driver, not `json-file`** (`docker info | grep -i "logging driver"`
-→ `db`; logs live in a binary `log.db`). `docker logs` therefore has to walk that database, which
-on a chatty container is slow enough to blow the ssh session — `docker logs --since 1h autobrr |
-grep -c` failed three times with `Connection closed by remote host` / broken pipe, even bounded
-with `--tail 3000`.
+**`docker logs --since 720h` does not actually reach back 30 days.** Container logs start at the
+last *recreation*, and watchtower recreates most containers weekly. Observed 2026-08-06:
+autobrr's entire log began 2026-07-28, so a "last 30 days" query covered 9 days; on 2026-09-22,
+after a stack restart, tubesync's log was 56 lines. Always read that first line (above) before
+drawing a conclusion from a log-based count. If the window is short, say so in the report rather
+than reporting the count as a 30-day figure. Anything needing true 30-day history must come from
+a **database or a file log** under `/volume2/docker-ssd/logs/`, not from `docker logs`.
 
-For anything chatty, grep the log file directly instead — bounded by line count:
+For a chatty container, reading the json log file directly is cheaper still — bounded by line
+count:
 
 ```bash
 /usr/bin/ssh synology 'lp=$(sudo /usr/local/bin/docker inspect -f "{{.LogPath}}" autobrr)
 sudo -n sh -c "tail -n 4000 $lp" | grep -c "got message"'
 ```
-
-Timestamps inside `log.db` are escaped/binary, so extract counts, not time ranges. And keep every
-grep over container logs bounded (`| head`, `| tail`, a narrow `--since`) regardless.
 
 **A glob inside a root-only directory silently expands to nothing — wrap it in `sudo sh -c`.**
 `sudo -n ls /some/root-only-dir/*.gz` is expanded by *your* shell (running as `michael`) before
@@ -176,10 +192,26 @@ swap the inner quotes in any inline `python3 -c` on the NAS.
 ```bash
 /usr/bin/ssh synology 'sudo /usr/local/bin/docker ps -a --format "{{.Names}}\t{{.Status}}" | sort'
 /usr/bin/ssh synology 'sudo /usr/local/bin/docker inspect --format "{{.Name}} {{.RestartCount}} {{.State.Status}}" $(sudo /usr/local/bin/docker ps -aq) | awk "\$2>0"'
+echo "--- containers NOT on json-file (db-driver deadlock risk, see §0) ---"
+/usr/bin/ssh synology 'for c in $(sudo /usr/local/bin/docker ps -a --format "{{.Names}}"); do
+  echo "$c $(sudo /usr/local/bin/docker inspect -f "{{.HostConfig.LogConfig.Type}}" $c)"; done | grep -v json-file'
 ```
 
-**PASS**: 33 named containers, all `Up` and — for the ones that declare a healthcheck —
-`(healthy)`. No `Exited`, no `Restarting`, restart counts 0.
+**PASS**: 32 named containers, all `Up` and — for the ones that declare a healthcheck —
+`(healthy)`. No `Exited`, no `Restarting`, restart counts 0. The log-driver check prints nothing.
+A container listed there was created before the compose pin (2026-09-22) and never recreated:
+recreate it with `compose up -d --no-deps <svc>`, and until then touch its logs only via the
+file form in §0.
+
+**Before reporting an `Exited` container, read its compose block.** A service parked on purpose
+carries `profiles: [donotstart]` and a comment saying why; that is a decision, not a fault.
+(jellystat was parked like this on 2026-09-05 and misreported as down on 2026-09-22; it has
+since been retired.)
+
+**A stack-wide uptime of ~1 h** (every container "Up About an hour") means Container Manager
+restarted — usually recovery from a db-driver wedge. Expect that day's job logs and DSM task
+statuses (§11) to carry fallout errors (connection refused / read timeouts on `localhost:<port>`)
+clustered in the restart window; attribute them to the incident, not to each job.
 
 **Flag**:
 - Any container **absent entirely** rather than stopped → this is the watchtower remove-failure
@@ -198,7 +230,9 @@ Confirm with `docker inspect -f '{{.Config.Image}}'` before dismissing.
 Also check autoheal actually did nothing, rather than being asleep:
 
 ```bash
-/usr/bin/ssh synology 'sudo /usr/local/bin/docker logs --since 720h autoheal 2>&1 | grep -ci restart'
+/usr/bin/ssh synology 'D=/usr/local/bin/docker; P=/volume1/probe-hc.log
+sudo sh -c "$D logs --since 720h autoheal > $P 2>&1"
+sudo grep -ci restart $P; sudo grep -i restart $P | tail -6 | cut -c1-160; sudo rm -f $P'
 ```
 0 restarts in 30 days = PASS. A non-zero count is not itself a failure but tells you which
 container has been flapping — chase it.
@@ -211,14 +245,19 @@ container has been flapping — chase it.
 
 | Metric | PASS | WARN | FAIL |
 |---|---|---|---|
-| `/volume1` (27T media HDD) | < 88 % | 88–93 % | > 93 % |
+| `/volume1` (37T media HDD) | < 88 % | 88–93 % | > 93 % |
 | `/volume2` (1.8T SSD, docker) | < 60 % | 60–80 % | > 80 % |
 | Swap used | < 5 G | 5–10 G | > 10 G |
 | Load avg (CPU component) | < 3 | 3–5 | > 5 |
 
-`/volume1` at 90 % is the *expected* steady state — `space_cleanup.py` runs nightly and holds it
-there. It is only a finding if it is **climbing month over month**, which means the cleanup is
-losing ground. Check §11 for whether space_cleanup ran.
+`/volume1` was 27T and held at ~90 % by `space_cleanup.py` until the September 2026 disk swap
+grew it to **37T (61 % on 2026-09-22)**. The metric that matters is still the trend: it is only a
+finding if usage is **climbing month over month**, which means the cleanup is losing ground.
+Check §11 for whether space_cleanup ran.
+
+Also confirm the RAID arrays are whole — `cat /proc/mdstat`: `md2` must read `[6/6] [UUUUUU]`
+and `md4` `[3/3] [UUU]`. Any `_` in that string is a degraded array and outranks everything else
+in the report.
 
 Read the load from the DSM-specific tail of `uptime`: `[IO: …  CPU: …]`. The plain load average
 on this box is inflated by IO wait and is not the thing to judge.
@@ -228,10 +267,12 @@ on this box is inflated by IO wait and is not the thing to judge.
 Deluge shares gluetun's network namespace, so these are one subsystem.
 
 ```bash
-/usr/bin/ssh synology '
-echo "--- public IP ---"; sudo /usr/local/bin/docker exec gluetun wget -qO- https://ipinfo.io/json | head -c 300; echo
-echo "--- forwarded/allowed port ---"; sudo /usr/local/bin/docker logs gluetun 2>&1 | grep -i "allowed input port" | tail -1
-echo "--- errors 30d ---"; sudo /usr/local/bin/docker logs --since 720h gluetun 2>&1 | grep -icE "error|i/o timeout"'
+/usr/bin/ssh synology 'D=/usr/local/bin/docker; P=/volume1/probe-hc.log
+echo "--- public IP ---"; sudo $D exec gluetun wget -qO- https://ipinfo.io/json | tr -d "\n" | cut -c1-300; echo
+sudo sh -c "$D logs --since 720h gluetun > $P 2>&1"
+echo "--- forwarded/allowed port ---"; sudo grep -i "allowed input port" $P | tail -1
+echo "--- errors 30d ---"; sudo grep -icE "error|i/o timeout" $P
+sudo rm -f $P'
 ```
 
 **PASS**: public IP is the VPN exit (currently NL / AS49453 Global Layer — **not** the ISP), and
@@ -300,9 +341,20 @@ PY
 /usr/bin/ssh synology 'sudo -n tail -15 /volume2/docker-ssd/logs/ptp_ratio.log'
 ```
 
-**PASS**: a run stamped within the last 24 h; `ratio` ≥ 2.0 (currently ~2.48 and drifting up);
-`Leak … <= BP-credit earned … covered, no alert`; the `PTP Freeleech → Deluge` filter state
-matches what the ratio dictates (disabled while ratio > threshold).
+**PASS**: a run stamped within the last 24 h; `ratio` ≥ 2.0; `Leak … <= BP-credit earned …
+covered, no alert`; the `PTP Freeleech → Deluge` filter state matches what the policy line
+dictates (freeleech only under ratio 1.50 with BP at reserve, so normally disabled).
+
+The ratio is expected to **drift down** now: the list backfill downloads ~10 films a day, paid for
+in BP rather than upload (2.69 on 09-14 → 2.4969 on 09-22, down +96 GiB, while BP rose to
+16.97M at ~188k/day). That is the design working. Judge it by the daily trend, one line per run:
+
+```bash
+/usr/bin/ssh synology 'sudo -n grep -E "PTP stats: ratio|BP/day=" /volume2/docker-ssd/logs/ptp_ratio.log | tail -60 | sed -E "s/\[INFO\] //" | cut -c1-130'
+```
+
+Escalate only if the ratio is on course to cross 2.0 **and** BP is not rising — at that point the
+purchase step should be buying credit, and a `no upload purchase needed` line below 2.0 is a bug.
 
 **Flag**: ratio trending *down* month over month, a `Leak … NOT covered` line, BP balance heading
 toward the 5M reserve, or BP/day well under ~180k (the seed budget in `deluge_cleanup` Rule 5 trims
@@ -337,9 +389,14 @@ curl -s -H "X-API-Token: $AUTOBRR_API_KEY" "http://localhost:7474/api/filters" \
 Expected filter set (IDs are stable):
 | ID | Name | Expected |
 |---|---|---|
-| 1 | PTP Freeleech → Radarr | **enabled** |
-| 2 | PTP Freeleech → Deluge | disabled while ratio > 2.0 (§4 toggles it) |
+| 1 | PTP Freeleech → Radarr | **absent** — deleted in the 2026-09-13 rework. Its reappearance is a finding |
+| 2 | PTP Freeleech → Deluge | disabled (§4's `ptp_ratio.py` toggles it) |
 | 3 | PTP → Radarr | disabled |
+
+With filter 1 gone and filter 2 normally disabled, **autobrr stores no new releases at all** —
+the newest release sits at the last day filter 1 existed (2026-09-13) and stays there. That is
+expected; the release-cadence table below is now only meaningful while filter 2 is enabled.
+Film intake is Radarr import lists, visible in §6.
 
 Lifetime push outcomes:
 
@@ -497,14 +554,15 @@ Health first — these endpoints return `[]` when clean:
 
 ```bash
 /usr/bin/ssh synology 'set -a; . /volume2/docker-ssd/.env; set +a;
+LIDARR_API_KEY=$(sudo -n sed -n "s:.*<ApiKey>\(.*\)</ApiKey>.*:\1:p" /volume2/docker-ssd/lidarr/config.xml)
 for x in "radarr:7878:v3:$RADARR_API_KEY" "sonarr:8989:v3:$SONARR_API_KEY" "lidarr:8686:v1:$LIDARR_API_KEY" "prowlarr:9696:v1:$PROWLARR_API_KEY"; do
   n=${x%%:*}; rest=${x#*:}; p=${rest%%:*}; rest=${rest#*:}; v=${rest%%:*}; k=${rest#*:}
   echo "--- $n ---"; curl -s -H "X-Api-Key: $k" "http://localhost:$p/api/$v/health"; echo
 done'
 ```
 
-`[]` for radarr/sonarr/prowlarr = **PASS** (verified 2026-08-06). Lidarr has no key in `.env`;
-read it from its `config.xml` if you want it, or skip and say so.
+`[]` for all four = **PASS** (verified 2026-09-22). Lidarr has no key in `.env`; the command
+reads it from its `config.xml`.
 
 Then activity and queues:
 
@@ -524,18 +582,29 @@ for r in d[\"records\"][:5]: print(\" \", r[\"date\"][:16], r[\"eventType\"], r[
   echo "=== $n queue ==="
   curl -s -H "X-Api-Key: $k" "http://localhost:$p/api/v3/queue?pageSize=100" | python3 -c "
 import sys,json;d=json.load(sys.stdin);print(\"queued:\",d[\"totalRecords\"])
-for r in d[\"records\"][:10]: print(\" \",r.get(\"status\"),r.get(\"trackedDownloadStatus\"),(r.get(\"title\") or \"\")[:55])
+for r in d[\"records\"][:10]:
+    print(\" \",r.get(\"status\"),r.get(\"trackedDownloadStatus\"),r.get(\"trackedDownloadState\"),(r.get(\"title\") or \"\")[:55], r.get(\"added\",\"\")[:16])
+    for m in r.get(\"statusMessages\") or []: print(\"     \", m.get(\"messages\"))
 "
 done'
 ```
 
-**Radarr PASS**: `downloadFolderImported` events on most days (freeleech arrives daily),
-queue near 0, and every `grabbed` followed by an import.
+**Radarr PASS**: `downloadFolderImported` events on most days (import lists + the §4 backfill
+land daily), queue near 0, and every `grabbed` followed by an import.
 
 **Sonarr PASS**: activity clustered around actual show releases — **gaps of a week or more are
 expected out of season and are not a finding.** Judge Sonarr by "did the shows I follow that
 aired this month get imported", not by daily cadence. An occasional `downloadFailed` followed by
 a successful re-grab is the system working (Radarr/Sonarr failed-redownload).
+
+**`downloadFailed` with message `Manually marked as failed` on an episode that has not aired yet**
+is `deluge_cleanup --arr-guard` rejecting a pre-air fake (memory `fake-mislabelled-episode-releases`)
+— the guard working, not a fault. Check `airDateUtc` before reporting a failed episode grab
+(2026-09-22: Slow Horses S06E02/E03 fakes, both caught before air).
+
+A queue item `completed / warning / importBlocked` with *"release was matched to movie by ID.
+Manual Import required"* is a one-click manual import in the Radarr UI; report it with its title
+and `added` time, it will not clear on its own.
 
 **Flag on either**: queue items stuck in `warning`/`error` `trackedDownloadStatus`, or a
 `grabbed` with no matching import within ~24 h.
@@ -567,48 +636,57 @@ gated indexers route through `flaresolverr`; if several fail at once, check that
 
 ## 7. Jellyfin — content freshness
 
+> **Jellyfin 12 (12.1.0 since 2026-09-22) accepts only the `Authorization` header.**
+> `X-Emby-Token` and `?api_key=` both return **401** — which reads as "Jellyfin is down" or,
+> through `json.load`, as a `JSONDecodeError`. `/health` still answers 200 anonymously. Every
+> deployed script already switched (`f5e8be8`); use the same header in every call here:
+> `-H "Authorization: MediaBrowser Token=\"$JELLYFIN_API_KEY\""`.
+
 ```bash
-/usr/bin/ssh synology 'set -a; . /volume2/docker-ssd/.env; set +a;
+/usr/bin/ssh synology 'set -a; . /volume2/docker-ssd/.env; set +a; A="Authorization: MediaBrowser Token=\"$JELLYFIN_API_KEY\""
+echo "--- counts ---"; curl -s -H "$A" "http://localhost:8096/Items/Counts"; echo
 for lib in "Movies:f137a2dd21bbc1b99aa5c0f6bf02a805" "Shows:a656b907eb3a73532e40e44b968d0225" "Youtube:e59b37148e0ff06f0d35b0c3c714e75c"; do
 n=${lib%%:*}; id=${lib##*:}; echo "=== $n ==="
-curl -s -H "X-Emby-Token: $JELLYFIN_API_KEY" \
+curl -s -H "$A" \
  "http://localhost:8096/Items?ParentId=$id&Recursive=true&IncludeItemTypes=Movie,Episode&SortBy=DateCreated&SortOrder=Descending&Limit=60&Fields=DateCreated" \
  | python3 -c "
 import sys,json,collections,datetime
-d=json.load(sys.stdin); print(\"library total:\", d[\"TotalRecordCount\"])
+d=json.load(sys.stdin)
 day=collections.Counter(i[\"DateCreated\"][:10] for i in d[\"Items\"])
 newest=max(day); age=(datetime.date.today()-datetime.date.fromisoformat(newest)).days
-print(\"newest:\", newest, f\"({age}d ago)\", \"| distinct days in last 60 items:\", len(day))
+print(\"newest:\", newest, \"(%dd ago)\" % age, \"| distinct days in last 60 items:\", len(day))
 for i in d[\"Items\"][:5]: print(\" \", i[\"DateCreated\"][:16], i.get(\"SeriesName\",\"\"), i[\"Name\"][:50])
 "; done'
 ```
+
+**Take library sizes from `/Items/Counts`, not from `TotalRecordCount`.** In Jellyfin 12 the
+`/Items?ParentId=…&Recursive=true` total is wrong — it returned 1649 for a movie library that
+holds 3586 (2026-09-22) — and looks like a mass deletion. `MovieCount` should equal Radarr's
+`hasFile` count (`/api/v3/movie`, sum of `hasFile`); a gap between the two is the real signal.
 
 Per-library expectations — **these differ deliberately, do not apply one threshold to all**:
 
 | Library | Expected cadence | WARN | FAIL |
 |---|---|---|---|
-| **Movies** (~3900) | near-daily; freeleech lands several/day | newest > 3 d old | newest > 7 d old |
-| **Youtube** (~590) | almost every day (tubesync) | newest > 2 d old | newest > 4 d old |
-| **Shows** (~3570) | bursty, follows airing seasons | — | only if §6 shows Sonarr imported episodes that Jellyfin does not have |
+| **Movies** (`MovieCount` ~3600) | near-daily; import lists + backfill land several/day | newest > 3 d old | newest > 7 d old |
+| **Youtube** (~520 episodes) | almost every day (tubesync) | newest > 2 d old | newest > 4 d old |
+| **Shows** (`EpisodeCount` ~4000) | bursty, follows airing seasons | — | only if §6 shows Sonarr imported episodes that Jellyfin does not have |
+
+A falling `MovieCount` is normal when it tracks Radarr: `space_cleanup.py` deleted 938 films in
+August 2026 (3941 → 3586). Only a Jellyfin count *below* Radarr's `hasFile` is a finding.
 
 A Movies or Youtube stall with §5/§9 healthy means the **import/scan** side broke, not the
 acquisition side — check the `jellyfin-nfo-refresh` job in §11 and Jellyfin's own errors in §8.
 
 ## 8. Jellyfin — playback, transcoding, library errors
 
-The direct evidence, and the best signal in this whole document — ffmpeg session logs by kind:
+**Any transcoding is a finding**, because this NAS cannot hardware-transcode and software
+transcoding starves it enough to stall playback mid-episode.
 
-```bash
-/usr/bin/ssh synology 'd=/volume2/docker-ssd/jellyfin/config/log
-for k in Transcode Remux DirectStream; do echo "$k: $(sudo -n find $d -name "FFmpeg.$k-*" -mtime -30 | wc -l)"; done'
-```
-
-**PASS**: `Transcode: 0`. Remux (container-swap, cheap) and DirectStream are fine and expected —
-22 Remux sessions in 30 days is the current normal. **Any non-zero Transcode count is a
-finding**, because this NAS cannot hardware-transcode and software transcoding starves it enough
-to stall playback mid-episode.
-
-Corroborate from the watch history, which also gives you the trend:
+> Until Jellyfin 12 the best evidence was the `FFmpeg.Transcode-*` session logs in
+> `jellyfin/config/log/`. **Jellyfin 12 no longer leaves them there** — on 2026-09-22 the
+> directory held zero `FFmpeg.*` files and only the last 3 days of `log_*.log` — so a
+> `find … FFmpeg.Transcode-*` count of 0 proves nothing. tracearr is now the only source:
 
 ```bash
 /usr/bin/ssh synology 'sudo /usr/local/bin/docker exec -i tracearr-db psql -U tracearr -d tracearr' <<'SQL'
@@ -627,6 +705,11 @@ SQL
 shows 40–60 % transcoding, and that older data is *not* a regression, it is the "before" half of
 a known fix. Only weeks after 2026-07-21 are in scope.
 
+It has regressed once already: **2026-08-14 → 09-11, 4–22 % weekly**, every transcode (37/37)
+from `Jellyfin Desktop` on Michaels MacBook Pro, then 0 % from 09-12 on. Report the first and
+last transcode dates (`max(started_at) filter (where is_transcode)`) so a closed episode is not
+re-reported as live.
+
 **If transcoding has returned**, the cause is almost never the server. It is a **client-side
 bitrate cap** forcing a needless transcode; the server's `RemoteClientBitrateLimit` is already 0.
 Identify the offending client and fix the cap there:
@@ -643,31 +726,42 @@ SQL
 ```
 Full background: memory `jellyfin-transcode-cpu-starvation`.
 
-Buffering complaints with `Transcode: 0` are **not** a server fault — that is CPL powerline link
+Buffering complaints with `pct_tc` at 0 are **not** a server fault — that is CPL powerline link
 saturation. Memories `jellyfin-buffering-cpl-saturation`, `lan-latency-wifi-scan-vs-cpl`.
 
-Jellyfin's own error log, last 30 days:
+Jellyfin's own error log — **only ~3 days are retained under Jellyfin 12**, so say "last 3 days"
+in the report, not 30:
 
 ```bash
 /usr/bin/ssh synology 'd=/volume2/docker-ssd/jellyfin/config/log
-sudo -n grep -ohE "\[ERR\].{0,90}" $d/log_2026*.log 2>/dev/null | sed "s/[0-9]\{2,\}//g" | sort | uniq -c | sort -rn | head -12'
+sudo -n ls $d | grep -E "^log_[0-9]+\.log$" | tr "\n" " "; echo
+sudo -n sh -c "grep -ohE \"\[ERR\].{0,90}\" $d/log_2*.log" | sed "s/[0-9]\{2,\}//g" | sort | uniq -c | sort -rn | head -12'
 ```
 
 Known-benign noise (report the counts, do not chase): `EpisodeNfoProvider: Image location`,
 `ProviderManager: Error in metadata saver`, `SubtitleResolver: Error getting external streams`.
-These come from tubesync NFOs and are cosmetic.
+These come from tubesync NFOs and are cosmetic. New with 12.x: `LibraryManager: Error in
+ItemAdded event handler` → `NullReferenceException at LibraryManager.CreateItems` (~30/day on
+2026-09-22). Items still appear in the library, so it is cosmetic for now — record the daily
+count and escalate only if new items stop showing up in §7.
 
 **Genuinely bad, escalate**: `Error in Directory watcher` / `FileSystemWatcher` bursts — real-time
 library monitoring dies silently and the whole library's watcher tears down. Root cause is the
 Synology `@eaDir` permission trap; the fix (`group_add: "100"` on the jellyfin service) is already
 applied, so a recurrence means it regressed. Memory `jellyfin-eadir-watcher`.
 
-Sanity-check the injected web customisations still load (they break on Jellyfin updates):
+Sanity-check the injected web customisations (they break on Jellyfin updates). They are no longer
+standalone `.js` files — they live inside the JS Injector plugin's config:
 
 ```bash
-/usr/bin/ssh synology 'sudo -n grep -c "" /volume2/docker-ssd/jellyfin/config/jellyfin_recently_watched.js /volume2/docker-ssd/jellyfin/config/jellyfin_latest_ungroup.js 2>/dev/null'
+/usr/bin/ssh synology 'F=/volume2/docker-ssd/jellyfin/config/plugins/configurations/Jellyfin.Plugin.JavaScriptInjector.xml
+sudo -n ls -l $F; sudo -n grep -oE "<(Name|Enabled)>[^<]*</(Name|Enabled)>" $F | paste - -'
 ```
-Memories `jellyfin-recently-watched`, `jellyfin-latest-ungroup`. If the files moved, just note it.
+**PASS**: four entries, all `<Enabled>true</Enabled>` — Recently Watched rows · Latest ungroup
+(episodes) · Tag filter · Subtitle resync button. Present-and-enabled does not prove they
+*render* on the new version; if a Jellyfin update landed this month, say so and suggest a look
+at the home page. Memories `jellyfin-recently-watched`, `jellyfin-latest-ungroup`,
+`jellyfin-tag-filter`, `jellyfin-subfix`, `jellyfin-injected-script-stale-cache`.
 
 ## 9. tubesync
 
@@ -703,11 +797,21 @@ Queue and guard state:
 
 ```bash
 /usr/bin/ssh synology '
-echo "--- huey LIMIT queue depth ---"; sudo /usr/local/bin/docker exec tubesync sqlite3 /config/tasks/huey_net_limited.db "select count(*) from task"
-echo "--- queue guard ---"; sudo -n cat /volume2/docker-ssd/state/tubesync_queue_guard.json; echo
-echo "--- guard log ---"; sudo -n tail -20 /volume2/docker-ssd/logs/tubesync_queue_guard.log
-echo "--- container errors 30d ---"; sudo /usr/local/bin/docker logs --since 720h tubesync 2>&1 | grep -icE "error|exception"'
+echo "--- queue guard (queue depths, auth, bgutil) ---"; sudo -n cat /volume2/docker-ssd/state/tubesync_queue_guard.json; echo
+echo "--- guard log ---"; sudo -n tail -20 /volume2/docker-ssd/logs/tubesync_queue_guard.log'
 ```
+
+> **Do not query the huey databases directly.** This section used to run
+> `docker exec tubesync sqlite3 /config/tasks/huey_net_limited.db "select count(*) …"` — a
+> **read-write open of a live SQLite database**, the exact pattern that broke Jellyfin for 5.5 h
+> on 2026-09-19 (`~/scripts/CLAUDE.md`, memory `jellyfin-sqlite-shm-deleted`). And `-readonly`
+> cannot be added: `sqlite3` in that image is a `python -m sqlite3` shim that rejects the flag.
+> The guard already reads all four queues safely every hour — take the depths from
+> `queues.<name>.depth` in its state file above.
+
+**PASS**: every `queues.*.depth` 0 (or draining), `stall_passes` 0, `auth.status` `ok`.
+`bgutil: repaired` after a container restart is normal — the guard reinstalls the PO-token
+provider when the container comes back without it.
 
 The guard runs hourly and reconciles tasks lost to a watchtower-killed container (stale huey lock
 + frozen "running" sentinel). Repeated recoveries in its log = the 4 a.m. image update is killing
@@ -717,8 +821,16 @@ in-flight downloads regularly. Memories `tubesync`, `tubesync-watchtower-killed-
 floor, and it is almost entirely three known-benign categories:
 
 ```bash
-/usr/bin/ssh synology 'sudo /usr/local/bin/docker logs --since 720h tubesync 2>&1 | grep -oiE "(error|exception)[^ ]*" | sort | uniq -c | sort -rn | head -8'
+/usr/bin/ssh synology 'D=/usr/local/bin/docker; P=/volume1/probe-hc.log
+sudo sh -c "$D logs --since 720h tubesync > $P 2>&1"
+echo "log starts: $(sudo head -1 $P | cut -c1-80)  ($(sudo wc -l < $P) lines)"
+echo "error lines: $(sudo grep -icE "error|exception" $P)"
+sudo grep -oiE "(error|exception)[^ ]*" $P | sort | uniq -c | sort -rn | head -8
+sudo rm -f $P'
 ```
+
+If the container was recreated recently the log is short (56 lines on 2026-09-22, after a stack
+restart) — report the count as covering that window, not 30 days.
 
 | Pattern | Meaning | Action |
 |---|---|---|
@@ -794,8 +906,9 @@ sudo /usr/local/bin/docker run --rm --entrypoint cat ghcr.io/meeb/tubesync:lates
 ```
 
 **PASS**: the running command shows both size flags and **no** `--db-enable-archive`; the deployed
-md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run`. If the *upstream* md5 changes, read their
-new script — ours shadows it, so an upstream fix or restructure would be silently ignored.
+md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run` (`d17cb919…` on 2026-09-22). The
+*upstream* script read `6fe1c4282e3f40f6c8765a55a297ffa9` on 2026-09-22; if that changes, read
+their new script — ours shadows it, so an upstream fix or restructure would be silently ignored.
 
 Diagnostic tell if it ever regresses: `du -sh state/hat/` over a few hundred MB, or any
 `syslog.db.NNNN` archive files at all (with `--db-enable-archive` dropped there should be none).
@@ -825,8 +938,10 @@ for r in d[:6]: print(\" \", r[\"parsed_timestamp\"], r[\"language\"][\"name\"],
 landing from more than one provider.
 
 **Flag**: any provider not `Good` — especially `opensubtitlescom` (quota/auth) and `subf2m` /
-`gestdown` (Cloudflare → check `flaresolverr`). Wanted counts around 1500 movies / 2000 episodes
-are the **expected steady state**, not a backlog to panic over: most of it is fr/ja that no
+`gestdown` (Cloudflare → check `flaresolverr`). A single provider showing
+`DownloadLimitExceeded` with a retry timer (`subdl`, 2026-09-22) is a daily quota, not an outage —
+note it, don't escalate unless it persists across audits. Wanted counts around 1100–1500 movies /
+~1900 episodes are the **expected steady state**, not a backlog to panic over: most of it is fr/ja that no
 provider has, which is precisely why the AI translator exists. Only a *sharp jump* matters.
 
 Now the AI subtitle pipeline (`subtitle_translate.py`, Claude CLI on the NAS, fr + ja):
@@ -847,27 +962,33 @@ echo "--- log tail ---"; sudo -n tail -15 /volume2/docker-ssd/logs/subtitle_tran
 echo "--- lock age ---"; sudo -n stat -c "%y %n" /volume2/docker-ssd/state/subtitle_translate.lock 2>/dev/null'
 ```
 
-**PASS**: `done` growing month over month (currently 102); ≥ ~20 new files in the last 30 days;
-`failures` in single digits; the `providers` snapshot matches the 8 live providers from the
-Bazarr call above.
+**PASS**: `done` growing month over month (803 on 2026-09-22, +381 in 30 days — a run writes
+~16–20 files a day); `failures` around a dozen or fewer; the `providers` snapshot matches the 8
+live providers from the Bazarr call above.
+
+`FAILED …: claude exited 143` is SIGTERM — the run was killed from outside, almost always by a
+Container Manager or stack restart that day. The DSM `Subtitles` task then shows `Error(1)`. It
+is not a translation fault: the lock is an `fcntl.flock`, so it dies with the process, and the
+next 08:00 run carries on where this one stopped.
 
 **Flag**:
 - `providers` snapshot **≠** live provider list → a provider was added or removed. The script
   auto-resets `provider_baseline` to now on an *addition* (so every language must fail a fresh
   all-provider sweep before being translated). Expect a temporary drop in output; that is
   correct, not broken.
-- A stale `subtitle_translate.lock` — but **check the log before believing it**. The lock's mtime
-  is when the run *started*, and a run legitimately lasts hours, so an 8-hour-old lock is normal
-  if the log ends in `run complete: N written`. Only treat it as a dead run when the lock is old
-  **and** the log's last line is mid-translation **and** no `claude-cli` container is running.
-  (Observed 2026-08-06: lock stamped 08:00, run completed 13:37 — a false positive.)
+- An old `subtitle_translate.lock` mtime means nothing on its own: the file is never deleted, its
+  mtime is when the last run *started*, and the lock itself is an `flock` held only while the
+  process lives. A run is dead-and-stuck only if `ps -eo pid,args | grep subtitle_translat[e]`
+  shows a process **and** the log has not moved for hours **and** no `claude-cli` container is
+  running.
 - Rising `failures`. The recurring error shape is `sent 150 blocks, missing [...]` — the model
   dropped cues from a chunk. A few are normal (the script retries); a jump means the `[N]`-block
   protocol is degrading and `CHUNK_CUES` (150) may need lowering. Memory `subtitle-translate`.
 - Auth: if the log shows the Claude CLI failing to start, `CLAUDE_CODE_OAUTH_TOKEN` in `.env` has
   expired.
 
-Spot-check that the output is real, not truncated — pick 2–3 recent paths from `done` and verify
+Spot-check that the output is real, not truncated — `done` is keyed `movie:<radarrId>:<lang>`
+and each value carries the written file's `path`; pick 2–3 recent ones (sort by `ts`) and verify
 the `.fr.srt` / `.ja.srt` has a plausible cue count and actual target-language text:
 
 ```bash
@@ -892,19 +1013,26 @@ three: **(a)** did each job run, and run cleanly · **(b)** is DSM still configu
 ```bash
 /usr/bin/ssh synology 'cd /volume2/docker-ssd/logs
 RE="^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:,.]+ +\[?(ERROR|CRITICAL)\]?( |$)"
-MONTHS="^2026-0[78]"                                        # <-- shift to the audit window
-RETIRED=" ptp_bp_tracker ptp_ratio_filter mentour_season_fix radarr_list_filter "  # folded in / one-offs
+SINCE=$(date -d "-30 days" +%F)                              # audit window, computed — nothing to edit
+RETIRED=" ptp_bp_tracker ptp_ratio_filter mentour_season_fix radarr_list_filter postgres-backup "  # folded in / replaced
+ONEOFF=" btrfs-balance media-cold-copy tubesync_target_schedule_pin "   # hand-run, no task, expected to go stale
 NOW=$(date +%s)
 for p in $(sudo -n sh -c "ls -1 /volume2/docker-ssd/logs/*.log" | sed "s|.*/||; s|\.log$||" \
            | grep -vE "^icloudpd-sync-[0-9]{8}$|^space_cleanup_needs_manual$"); do
   case "$RETIRED" in *" $p "*) tag="[retired]";; *) tag="";; esac
+  case "$ONEOFF"  in *" $p "*) tag="[one-off]";; esac
   age=$(( (NOW - $(sudo -n stat -c %Y "$p.log")) / 3600 ))
   last=$(sudo -n stat -c %y "$p.log" | cut -c1-16)
-  n=$(sudo -n grep -E "$RE" "$p.log" 2>/dev/null | grep -cE "$MONTHS")
-  worst=$(sudo -n grep -E "$RE" "$p.log" 2>/dev/null | grep -oE "$MONTHS-[0-9]{2}" | sort | uniq -c | sort -rn | head -1 | tr -s " ")
+  days=$(sudo -n grep -E "$RE" "$p.log" 2>/dev/null | cut -c1-10 | awk -v s="$SINCE" "\$1 >= s")
+  n=$(printf "%s" "$days" | grep -c .)
+  worst=$(printf "%s" "$days" | sort | uniq -c | sort -rn | head -1 | tr -s " ")
   printf "%-30s last=%s %5sh  errs=%-5s worst:%s %s\n" "$p" "$last" "$age" "$n" "${worst:- none}" "$tag"
 done'
 ```
+
+`[one-off]` logs were written by hand-run jobs from the September 2026 disk swap (a btrfs
+rebalance, a `/volume1` cold copy that was deliberately interrupted, a one-time tubesync schedule
+pin). They have no script in the repo and no DSM task; a stale age on them is correct.
 
 Three traps this command exists to avoid:
 
@@ -936,16 +1064,20 @@ A spike in `deluge_cleanup` specifically (hundreds of `[ERROR] ERROR processing 
 is the mass-error signature from §3 — PTP Intermission or a gluetun tunnel drop, which triggers
 the script's own systemic-error self-restart. Confirm which, then move on; it is self-healing.
 
-Expected cadence: `deluge_cleanup` daily 07:00 · `ptp_ratio` daily 04:00 · `space_cleanup` daily
-05:00 · `postgres-backup` daily 03:00 · `recsys` daily 09:00 · `mentour_rewatch` daily 08:00 ·
+Expected cadence: `databases-backup` daily 03:00 (replaced `postgres-backup` on 2026-09-20 —
+Postgres plus the SQLite dbs) · `ptp_ratio` daily 04:00 · `media-precious-sync` daily 04:00 ·
+`icloudpd-sync` daily 04:30 · `space_cleanup` daily 05:00 · `jellyfin_cast_rollup` daily ~05:30 ·
+`deluge_cleanup` daily 07:00 (plus `--arr-guard` passes every 15 min) · `disk_health_check` daily
+07:15 · `ptp_dead_torrents` daily 07:30 · `mentour_rewatch` daily 08:00 · `subtitle_translate`
+daily 08:00 (runs for hours) · `recsys` daily 09:00 ·
 `jellyfin-nfo-refresh` (+ `youtube_episode_renumber` + `tubesync_members_only_sweep` +
 `tubesync_queue_guard`) every 15 min · `container_crash_watcher` continuous ·
-`icloudpd-sync` daily 04:30 · one "Kindle Read Sync" task hourly at :05 chaining five scripts
+one "Kindle Read Sync" task hourly at :05 chaining five scripts
 (`kindle_syncthing_unblock` → `kindle_read_sync` → `kindle_koreader_status` →
 `kindle_calibre_metadata` → `cwa_ui_patch`) — so those five logs move together, and one of them
 lagging the other four means that script is failing, not that the task stopped.
-On-demand, no schedule: `ptp_dead_torrents` (the `/ptp-dead-torrents` skill),
-`compose-reconcile`, `acl-guard` (event-driven watchdog).
+Event-driven or rare: `compose-reconcile`, `acl-guard` (watchdog; its log moves only when DSM
+regenerates the reverse-proxy config).
 
 **Flag**: a log whose `age` exceeds its cadence by a wide margin — the DSM task is disabled, or
 the script errors before it can write. Cross-check against §11.2 (is a task still configured?)
@@ -1001,7 +1133,7 @@ cd ~/scripts && {
   for f in *.py *.sh; do printf "%s %s\n" "$(md5 -q "$f")" "$f"; done
   echo "--MARK--"
   /usr/bin/ssh synology 'sudo -n sh -c "cd /volume2/docker-ssd/scripts && md5sum *.py *.sh"' | awk '{print $1, $2}'
-} | awk -v laptop="borg-backup.sh compose_deploy.sh linkcheck.sh" '
+} | awk -v laptop="compose_deploy.sh linkcheck.sh podcast_ad_cut.py podcast_ad_deploy.py tubesync-ts-overrides.py" '
   /^--MARK--$/ {side=1; next}
   side==0 {l[$2]=$1; next}
   {n[$2]=$1}
@@ -1034,9 +1166,15 @@ cd ~/scripts && {
   library; that edit needs a record) but must **not** be scheduled or given a log — that would
   present a finished migration as a running job and guarantee a false "stale log" finding every
   month afterwards. Commit it, mark it in the header, and let §11.3 list it as an expected orphan.
-- **`LOCAL-ONLY`** — normally fine. The `laptop=` allowlist covers the three scripts that run on
-  the MacBook by design, and `*_patch.py` covers the one-shot Kindle patches. Anything else
-  appearing here is a script you wrote and never deployed.
+- **`LOCAL-ONLY`** — normally fine. The `laptop=` allowlist covers the scripts that run on the
+  MacBook by design (`compose_deploy.sh`, `linkcheck.sh`, the `/podcast-ad-cut` pair
+  `podcast_ad_cut.py` / `podcast_ad_deploy.py`), plus `tubesync-ts-overrides.py`, which *is*
+  deployed but under another name — to `tubesync/settings_overrides/ts_overrides.py`; compare it
+  by hand with `md5sum` there. `*_patch.py` covers the one-shot Kindle patches. Anything else
+  appearing here is a script you wrote and never deployed. (Mac-side tools like `borg-backup.sh`
+  now live in chezmoi, not here.)
+- **`DRIFT` on `subtitle_credit_sweep.py` is expected** — the repo copy gained a header note
+  after the one-off ran (`de8cca4`), and a finished migration is not worth redeploying.
 
 Then the reachability question — is each deployed script actually invoked by *something*, either
 a DSM task or another script?
@@ -1055,11 +1193,23 @@ docstring, a log path, an `argparse` prog) and the check reports exactly one orp
 like it passed. Note it also counts *module imports*, not just shell invocations, which is what
 keeps `radarr_list_filter.py` correctly off the list (§11.1).
 
-An `ORPHAN` is deployed code nothing calls. Baseline 2026-08-07 is **five, all expected**:
-`tracearr_playback_audit.py` (run by hand / §13) · `ptp_dead_torrents.py` (the
-`/ptp-dead-torrents` skill) · `tracearr_plex_backfill.py` (one-off 2016–2026 import) ·
-`subtitle_credit_sweep.py` (one-off AI-credit backfill, see above) ·
-`kindle_syncthing_relay.py` (a container entrypoint, not a scheduled job).
+An `ORPHAN` is deployed code nothing calls. Baseline 2026-09-22 is **six, all expected**:
+`tracearr_playback_audit.py` (run by hand / §13) · `tracearr_plex_backfill.py` (one-off
+2016–2026 import) · `subtitle_credit_sweep.py` (one-off AI-credit backfill, see above) ·
+`kindle_syncthing_relay.py` (a container entrypoint, not a scheduled job) ·
+`jellyfin_nfo_pin.py` (hand-run fix for mis-identified movies, memory
+`jellyfin-movie-misidentification`) · `jellyfin_task_triggers.py` (hand-run `--disable` /
+`--restore` / `--status` of Jellyfin's library-scan tasks, used to park them during a RAID
+rebuild). `ptp_dead_torrents.py` left the list when it got its own daily 07:30 task.
+
+For `jellyfin_task_triggers.py` specifically, confirm the tasks are **not still parked** — a
+forgotten `--disable` silently stops library scans, trickplay and intro detection:
+
+```bash
+/usr/bin/ssh synology 'sudo -n env ENV_FILE=/volume2/docker-ssd/.env python3 /volume2/docker-ssd/scripts/jellyfin_task_triggers.py --status 2>&1 | tail -9'
+```
+**PASS**: all six tasks show `1 trigger(s)` and `backup: none` (no parked state waiting to be
+restored).
 
 So a bare orphan is not a finding here. The finding to chase is the combination **orphan + a log
 that used to move and stopped** — a job that silently died — or **orphan + `NAS-ONLY`**, which is
@@ -1088,11 +1238,21 @@ the script header; memory `synology-script-deployment`.
 
 ```bash
 /usr/bin/ssh synology '
-sudo -n sh -c "ls -lat /volume2/docker-ssd/postgres-dumps/*.sql.gz | head -5; echo dumps=\$(ls /volume2/docker-ssd/postgres-dumps/*.sql.gz | wc -l)"'
+sudo -n sh -c "ls -lat /volume2/docker-ssd/postgres-dumps/*.sql.gz | head -5; echo dumps=\$(ls /volume2/docker-ssd/postgres-dumps/*.sql.gz | wc -l)"
+echo "--- last run ---"; sudo -n tail -9 /volume2/docker-ssd/logs/databases-backup.log | cut -c1-160'
 ```
 
-**PASS**: today's `dump-YYYYMMDD.sql.gz` present, ~175 MB, ~30 files retained, size **stable or
-growing** — a sudden shrink means a database dropped out of `pg_dumpall`.
+**PASS**: today's `dump-YYYYMMDD.sql.gz` present, ~170 MB, ~30 files retained, size **stable or
+growing** — a sudden shrink means a database dropped out of `pg_dumpall`; and the
+`databases-backup.log` run ends `=== finished, all databases backed up ===` with one `OK:` line
+per SQLite db (jellyfin, introskipper, autobrr, tautulli, wizarr, calibre →
+`sqlite-dumps/<db>-YYYYMMDD.db.gz`). This job replaced `postgres-backup.sh` on 2026-09-20, which
+is why that log stops on 09-19. Background: memory `sqlite-backup-vs-snapshots`.
+
+Expect a **one-time ~70 MB drop in the dump size** after 2026-09-22: the `jellystat` database
+was dropped when jellystat was retired. A drop of that size in the following dump is that, not a
+lost database. Its final standalone dump is archived at
+`/volume2/docker-ssd/jellystat/jellystat-final-20260922.sql.gz`.
 
 ### Laptop → NAS borg backup
 
@@ -1192,6 +1352,13 @@ session is never created — while the *stop* report still lands, so the library
 ```
 Workaround is setting that client's volume to 100. Memory `tracearr-missing-plays-sse-plugin`.
 
+The audit covers everything since 2026-06-03, so read its dates, not its total. Its "LOST plays"
+count is dominated by one known artefact: **the same title "finished" roughly hourly by one
+client** (FrancoisW / *Amélie* / MacBook-Air-de-Francois, 179 rows 2026-08-26 → 09-04) is a
+forgotten paused player generating phantom sessions (memory `jellyfin-zombie-session-kill`), not
+lost viewing. Bucket the rows by day (`grep -oE "^  2026-[0-9-]+" | sort | uniq -c`) and report
+only the genuine ones inside the audit window — 3 since 09-05 on 2026-09-22.
+
 Also confirm the History page still answers quickly — the hypertable over-chunking regression:
 
 ```bash
@@ -1225,7 +1392,7 @@ the likely cause, and the proposed fix. Empty section = say "Nothing.">
 ## Section results
 | # | Area | Verdict | Key numbers |
 |---|------|---------|-------------|
-| 1 | Containers | ✅ | 33 up, 0 restarts, 0 unhealthy |
+| 1 | Containers | ✅ | 32 up, 0 restarts, 0 unhealthy, 0 on `db` log driver |
 | … | | | |
 
 ## Notable this month
@@ -1241,46 +1408,54 @@ Rules for the report:
   named existing skill (`/tubesync-prioritize`, `/ptp-dead-torrents`) when its trigger condition
   is clearly met.
 
-## 15. Baseline (recorded 2026-08-06)
+## 15. Baseline (recorded 2026-09-22)
 
-Compare against this; if the stack has legitimately moved on, update these numbers.
+Compare against this; if the stack has legitimately moved on, update these numbers. The first
+baseline (2026-08-06) is kept below the table where a trend needs its "before" value.
 
 | Signal | Value |
 |---|---|
-| Containers running | 33 (+ transient `claude-cli` one-shots) |
-| Restart counts / exited | 0 / none |
-| `/volume1` · `/volume2` | 90 % · 7 % |
-| Mem · swap · load | 6.5/31 Gi · 1.9/20 Gi · CPU 1.25 (post-fix; the tubesync loop had inflated swap to 5.5 Gi) |
-| VPN exit | NL, AS49453 Global Layer, 213.152.161.54 |
-| Deluge | 1898 torrents, **all Seeding**, 0 Error, 3 tracker-Error, incoming=1, tun0/tun0, port 55364 |
-| PTP | ratio 2.4761, up 2463 GiB / down 995 GiB, BP 8.86 M, leak covered |
-| autobrr filters | 1 enabled · 2 disabled · 3 disabled |
-| autobrr lifetime | total 3045 · push_approved 2795 · push_error 282 (**all June 2026, none since**; 276 = filter-2 Deluge connect, 6 = filter 1) · filter_rejected 0 |
-| autobrr cadence | 17–45/day Jun 20 → Jul 17, **zero Jul 18–31**, resumed Aug 1 — **PTP Intermission**, a ~2-week site outage (originally misrecorded here as a freeleech drought) |
-| PTP Intermission Jul 2026 | 2026-07-18 → 07-29: 12 × stats-bar parse errors in `ptp_ratio.log`, upload credit +3.18 GiB in 13 days, autobrr silent. Recovered on its own Jul 30 |
-| Radarr / Sonarr / Prowlarr health | `[]` · `[]` · `[]` |
-| Radarr history · queue | 9486 lifetime · 0 queued |
-| Sonarr history | 3892 lifetime, last import 2026-08-03 |
-| Prowlarr backed-off indexers | 1 (id 19, since 2026-07-28) |
-| Jellyfin libraries | Movies 3941 · Shows 3571 · Youtube 592 |
-| Jellyfin ffmpeg 30 d | **Transcode 0** · Remux 22 · DirectStream 0 |
-| tracearr 30 d | no gaps, 4–79 plays/day, 1–3 users, transcodes ~0 since 2026-07-21 |
-| tracearr weekly `pct_tc` | 45.7 → 56.4 → 8.8 → **0.9 → 1.8** (fix landed 2026-07-21) |
-| tracearr `sessions` chunks | 15 |
-| tubesync | 590 downloaded of 14211 rows, 22 pending, 15 sources, 0 `ready`, ~840 benign log "errors"/30 d |
-| tubesync memory | **646 MiB / 4 GiB (15.8 %), CPU 0.3 %** after the 2026-08-06 hat-syslog fix (was 99.5 % / 82 %) |
-| `state/hat/` | 8 MB, single `syslog.db`, **no `syslog.db.NNNN` archives** — caps at ~59 MB. Hundreds of MB, or any archive file, means the override stopped applying |
-| Laptop borg | ✅ agent `allowed`, hourly again; last backup 2026-08-06 16:00 exit 0. Row is named **`caffeinate`** in Login Items |
-| Compose staleness | 20 of 33 containers, accepted by decision — see §0. Report the count, don't act on it |
-| Bazarr | 8 providers all Good; wanted 1538 movies / 1982 episodes |
-| AI subtitles | done 102, failures 6, 8-provider baseline |
-| postgres dump | `dump-20260806.sql.gz`, 176 MB, 03:00, 30 retained |
-| Scheduled-job errors (Jul–Aug) | all 0–12 except `deluge_cleanup` 772 — **769 of them on 2026-07-27 alone** (one mass-error incident, self-healed) |
-| Job logs enumerated | 25 basenames (excl. rotated `icloudpd-sync-*`), 4 `RETIRED` |
-| DSM tasks | 27 total; all enabled except `Personal videos`, `Docker`, `PTP Archiver`; every enabled script task `Success` |
-| Scripts deployed | 25 in `/volume2/docker-ssd/scripts/` (+ a stale `deluge_cleanup.py.bak-20260727`) |
-| Script drift (2026-08-07) | 1 `DRIFT` — `ptp_ratio.py`, repo **ahead** by `fc28e48` (Jul 20 Intermission handling) never deployed · `NAS-ONLY` now 0 (`subtitle_credit_sweep.py` committed as `de8cca4`) |
-| Script orphans | 5, **all expected** (2 hand/skill-run, 2 completed one-offs, 1 container entrypoint) |
+| Containers running | 32 (+ transient `claude-cli` one-shots). jellystat retired 2026-09-22 |
+| Restart counts / exited | 0 / none. Log drivers: all `json-file` |
+| `/volume1` · `/volume2` | **61 % of 37T** (was 90 % of 27T before the Sep 2026 disk swap) · 8 % of 1.8T |
+| RAID | md2 `[6/6] [UUUUUU]` · md4 `[3/3] [UUU]` |
+| Mem · swap · load | 4.8/31 Gi · 0.45/20 Gi · CPU 0.19 |
+| VPN exit | NL, AS49453 Global Layer, 213.152.161.153 (the /24 rotates; the ASN is the check) |
+| Deluge | 1524 torrents, **all Seeding**, 0 Error, 2 tracker-Error, incoming=1, tun0/tun0, port 55364 (seed budget trimmed it from 1898) |
+| PTP | ratio 2.4969 (falling from 2.69 on 09-14 by design — list backfill), up 2990 / down 1198 GiB, **BP 16.97 M at 188.6k/day**, leak covered |
+| autobrr filters | 1 **absent** (retired) · 2 disabled · 3 disabled. Newest stored release 2026-09-13 |
+| autobrr lifetime | total 3774 · push_approved 3524 · push_error 282 (all June 2026, unchanged) · filter_rejected 0 |
+| autobrr IRC | PTP connected+healthy, #ptp-announce monitored, 75 announces / 4000 log lines (log was ~1 h old) |
+| Radarr / Sonarr / Lidarr / Prowlarr health | `[]` ×4 |
+| Radarr history · queue | 11625 lifetime · 1 queued (manual-import block) |
+| Sonarr history · queue | 4551 lifetime, last import 2026-09-21 · 0 queued |
+| Prowlarr backed-off indexers | 0. Busiest: Nyaa 427 q, PTP-Freeleech 336, Torrent9 324 (4 fail), TPB 297 — all < 1.3 s |
+| Jellyfin | 12.1.0. `/Items/Counts`: **Movies 3586** (= Radarr hasFile) · Episodes 4017 · Series 157 · Youtube lib 522 |
+| Jellyfin errors (3 d) | 99 `ItemAdded` NullReference (new in 12.x) · 38 metadata saver · 19 SubtitleResolver · 0 watcher |
+| tracearr weekly `pct_tc` | 0.9 → 3.9 → 5.4 → **18.6 → 11.3 → 22.2** → 11.6 → 0 → 0 (Aug 14–Sep 11 regression, MacBook Pro Desktop client; clean since 09-12) |
+| tracearr 30 d | no zero days, 2–25 plays/day, 1–2 users · chunks 15 · 0 backfill rows |
+| tracearr audit | 189 "lost" since June; 179 = the FrancoisW zombie player (08-26 → 09-04); 3 genuine since 09-05 |
+| tubesync | 15 sources, 0 `ready`, 0 `needs_meta`, 3–4 downloads/day · guard queues all 0, auth ok, 22 cookies |
+| tubesync memory | 947 MiB / 4 GiB (23 %), CPU 0.4 % · 0 kernel OOM kills |
+| `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `d17cb919…` = repo · upstream run md5 `6fe1c428…` |
+| Laptop borg | ✅ `caffeinate` row `allowed`; hourly, last 2026-09-22 14:00 exit 0; NAS index 14:00 |
+| chezmoi | status clean; last autocommit 2026-09-21 |
+| Compose staleness | 1 of 32 (was 20 of 33 — the 09-22 Container Manager restart and json-file recreates reset most labels) |
+| Bazarr | 7 Good + `subdl` quota-limited; wanted 1134 movies / 1910 episodes · `hi_extension=sdh` |
+| AI subtitles | done 803 (+381 in 30 d), failures 11, 8-provider snapshot |
+| Database dumps | `dump-20260922.sql.gz` 170 MB, 27 retained + 6 SQLite dumps (`databases-backup.sh`). Expect ~−70 MB once jellystat's db is gone |
+| Scheduled-job errors (30 d) | all 0–4 except `subtitle_translate` 40 (worst 8 on 09-13; chunk-drop retries). 09-22 fallout from the CM restart: deluge_cleanup 4, recsys + Subtitles tasks `Error(1)` |
+| Job logs enumerated | 31 basenames (excl. rotated `icloudpd-sync-*`): 5 `RETIRED`, 3 `one-off` |
+| DSM tasks | 33 total; disabled: `Personal videos`, `Docker`, `PTP Archiver`, old `Synology C2` ×2, `Share [docker] Snapshot` |
+| Scripts deployed | 30 in `/volume2/docker-ssd/scripts/` |
+| Script drift | 1 `DRIFT`, expected (`subtitle_credit_sweep.py` header) · 0 `NAS-ONLY` · 3 `LOCAL-ONLY`, all allowlisted |
+| Script orphans | 6, **all expected** (see §11.3) · Jellyfin scan tasks restored (`backup: none`) |
+
+First baseline, 2026-08-06, for trend context: /volume1 90 % of 27T · Deluge 1898 torrents · PTP
+ratio 2.4761, BP 8.86 M · Radarr 9486 lifetime · Jellyfin Movies 3941 · tracearr `pct_tc`
+45.7 → 56.4 → 8.8 → 0.9 → 1.8 around the 2026-07-21 fix · AI subtitles 102 done · compose
+staleness 20 of 33 · the **PTP Intermission 2026-07-18 → 07-29** (12 stats-bar parse errors,
++3.18 GiB upload in 13 days, autobrr silent; recovered on its own).
 
 ## 16. Related memories
 
@@ -1296,4 +1471,4 @@ re-derived from scratch:
 `tubesync` · `tubesync-watchtower-killed-tasks` · `tubesync-cleanup-old-media-broken` ·
 `subtitle-translate` · `bazarr-incomplete-english-subs` · `tracearr-missing-plays-sse-plugin` ·
 `tracearr-hypertable-overchunking` · `tracearr-plex-backfill` · `space-cleanup-live-run` ·
-`postgres-mediastack-role` · `borg-backup-cpl-throttle` · `reverse-proxy-acl-guard` · `uptimerobot`
+`postgres-mediastack-role` · `borg-backup-cpl-throttle` · `docker-db-logdriver-wedge` · `jellyfin-sqlite-shm-deleted` · `sqlite-backup-vs-snapshots` · `fake-mislabelled-episode-releases` · `jellyfin-zombie-session-kill` · `reverse-proxy-acl-guard` · `uptimerobot`
