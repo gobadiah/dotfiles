@@ -797,7 +797,7 @@ Queue and guard state:
 
 ```bash
 /usr/bin/ssh synology '
-echo "--- queue guard (queue depths, auth, bgutil) ---"; sudo -n cat /volume2/docker-ssd/state/tubesync_queue_guard.json; echo
+echo "--- queue guard (queue depths, auth) ---"; sudo -n cat /volume2/docker-ssd/state/tubesync_queue_guard.json; echo
 echo "--- guard log ---"; sudo -n tail -20 /volume2/docker-ssd/logs/tubesync_queue_guard.log'
 ```
 
@@ -810,8 +810,9 @@ echo "--- guard log ---"; sudo -n tail -20 /volume2/docker-ssd/logs/tubesync_que
 > `queues.<name>.depth` in its state file above.
 
 **PASS**: every `queues.*.depth` 0 (or draining), `stall_passes` 0, `auth.status` `ok`.
-`bgutil: repaired` after a container restart is normal — the guard reinstalls the PO-token
-provider when the container comes back without it.
+PO tokens come from the `bgutil-provider` sidecar, not the in-image provider (which is unused and
+always down — ignore it). Check the sidecar: `docker ps --filter name=bgutil` → `(healthy)`, and
+`docker exec tubesync curl -s http://bgutil-provider:4416/ping` → JSON with a version.
 
 The guard runs hourly and reconciles tasks lost to a watchtower-killed container (stale huey lock
 + frozen "running" sentinel). Repeated recoveries in its log = the 4 a.m. image update is killing

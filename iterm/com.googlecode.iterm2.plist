@@ -525,6 +525,10 @@
 	<true/>
 	<key>HotkeyMigratedFromSingleToMulti</key>
 	<true/>
+	<key>IRMemory</key>
+	<integer>4</integer>
+	<key>MinimalTabStyleBackgroundColorDifference</key>
+	<real>0.5</real>
 	<key>NeverBlockSystemShutdown</key>
 	<true/>
 	<key>New Bookmarks</key>
@@ -3758,5 +3762,7 @@
 	</data>
 	<key>findMode_iTerm</key>
 	<integer>0</integer>
+	<key>kTurnOffSlowTriggersOfferUserDefaultsKey</key>
+	<false/>
 </dict>
 </plist>

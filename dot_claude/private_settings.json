@@ -1,5 +1,5 @@
 {
-  "model": "claude-fable-5-1[1m]",
+  "model": "opus[1m]",
   "hooks": {
     "Notification": [
       {
@@ -147,5 +147,6 @@
       "**Trusted repo**: /Users/michaeljourno/workspace/src/github.com/gobadiah/loglens (github.com:gobadiah/loglens.git) — private, so confidential material is fine to commit there, but secrets and sensitive data are never cleared by visibility alone",
       "**Org-specific CLIs**: terraform (MCP) scoped to the Gobadiah organization only, never ubbleai"
     ]
-  }
+  },
+  "switchModelsOnFlag": true
 }
