@@ -27,7 +27,7 @@ Jellyfin 12.1 and the json-file log pin on 2026-09-22; it returns what it claims
 - **Don't stop at the first failure.** A red section is a finding, not an abort. Run all 13.
 - **Every verdict needs a number.** "Deluge looks fine" is not a verdict; "1898 torrents,
   0 in Error, 3 tracker errors, incoming connections OK" is.
-- **Compare against [§15 baseline](#15-baseline-recorded-2026-09-22)**, not against your
+- **Compare against [§15 baseline](#15-baseline-recorded-2026-10-05)**, not against your
   intuition. This stack is deliberately unusual in places.
 
 ---
@@ -198,7 +198,10 @@ echo "--- containers NOT on json-file (db-driver deadlock risk, see §0) ---"
 ```
 
 **PASS**: 32 named containers, all `Up` and — for the ones that declare a healthcheck —
-`(healthy)`. No `Exited`, no `Restarting`, restart counts 0. The log-driver check prints nothing.
+`(healthy)`. No `Exited`, no `Restarting`, restart counts 0. The log-driver check prints nothing
+except the transient `claude-cli` one-shots (`docker run --rm` from `subtitle_translate.py` does not
+get the compose json-file pin, so they land on the daemon-default `db` driver). Those are harmless
+as long as nobody runs `docker logs` against them; anything else listed is a finding.
 A container listed there was created before the compose pin (2026-09-22) and never recreated:
 recreate it with `compose up -d --no-deps <svc>`, and until then touch its logs only via the
 file form in §0.
@@ -609,6 +612,24 @@ and `added` time, it will not clear on its own.
 **Flag on either**: queue items stuck in `warning`/`error` `trackedDownloadStatus`, or a
 `grabbed` with no matching import within ~24 h.
 
+**Radarr `ImportListStatusCheck` naming a `Trakt list · …`** = the Trakt OAuth refresh failed
+(`auth.servarr.com/v1/trakt/renew … 400` then `api.trakt.tv … 401` in
+`/volume2/docker-ssd/radarr/logs/radarr*.txt`). Both Trakt lists (ids 17, 18) share one login, so
+treat both as dead even when health names only one. It silently starves the curated intake (first
+seen 2026-09-20, caught 10-05). Fix is UI-only: Settings → Lists → each Trakt list → *Authenticate
+with Trakt* → Save. Verify without waiting for the next sync — the field `expires` should be ~7 days
+out, and `POST /api/v3/importlist/test` with the list's own JSON returns `{}` HTTP 200:
+
+```bash
+/usr/bin/ssh synology 'set -a; . /volume2/docker-ssd/.env; set +a; K=$RADARR_API_KEY
+for id in 17 18; do J=$(curl -s -H "X-Api-Key: $K" http://localhost:7878/api/v3/importlist/$id)
+  echo "$J" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d[\"name\"],[f[\"value\"] for f in d[\"fields\"] if f[\"name\"]==\"expires\"])"
+  curl -s -w " HTTP%{http_code}\n" -H "X-Api-Key: $K" -H "Content-Type: application/json" -X POST http://localhost:7878/api/v3/importlist/test --data "$J"
+done'
+```
+The access token is only valid a week and Radarr renews it with the refresh token, so an `expires`
+date in the past at audit time means renewal is failing again.
+
 Prowlarr indexers:
 
 ```bash
@@ -710,9 +731,20 @@ from `Jellyfin Desktop` on Michaels MacBook Pro, then 0 % from 09-12 on. Report 
 last transcode dates (`max(started_at) filter (where is_transcode)`) so a closed episode is not
 re-reported as live.
 
-**If transcoding has returned**, the cause is almost never the server. It is a **client-side
-bitrate cap** forcing a needless transcode; the server's `RemoteClientBitrateLimit` is already 0.
-Identify the offending client and fix the cap there:
+**If transcoding has returned**, the cause is almost never the server. It has been one of two
+client-side things; the server's `RemoteClientBitrateLimit` is already 0:
+
+- a **client bitrate cap** forcing a needless transcode (Aug 14 → Sep 11 regression), or
+- a **codec the client stopped direct-playing**. Sep 21 → Oct 3 (11.4 % → 27.7 % weekly): *Barry* /
+  *American Crime Story* x265 releases — **HEVC Main 10 at only ~4 Mbit/s + EAC3 5.1**, so not a
+  bitrate problem — transcoded video *and* audio on Jellyfin Desktop (MacBook Pro), with the same
+  episode restarted 5× in an hour (the CPU-starvation stall).
+
+Tell them apart with `video_decision`/`audio_decision`/`quality` per title (`media_title`,
+`grandparent_title`) in `sessions`, then pull the file's streams from Jellyfin
+(`/Items?SearchTerm=…&Fields=MediaStreams`). Low bitrate + HEVC 10-bit/EAC3 = codec support;
+high bitrate + `quality` below source = a cap. The exact reason is on Dashboard → Playback while it
+plays. Identify the offending client and fix it there:
 
 ```bash
 /usr/bin/ssh synology 'sudo /usr/local/bin/docker exec -i tracearr-db psql -U tracearr -d tracearr' <<'SQL'
@@ -907,9 +939,14 @@ sudo /usr/local/bin/docker run --rm --entrypoint cat ghcr.io/meeb/tubesync:lates
 ```
 
 **PASS**: the running command shows both size flags and **no** `--db-enable-archive`; the deployed
-md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run` (`d17cb919…` on 2026-09-22). The
-*upstream* script read `6fe1c4282e3f40f6c8765a55a297ffa9` on 2026-09-22; if that changes, read
+md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run` (`d17cb919…` on 2026-10-05). The
+*upstream* script read `0a88c894d30afba208c513328aebcbf1` on 2026-10-05; if that changes, read
 their new script — ours shadows it, so an upstream fix or restructure would be silently ignored.
+
+History of that hash: `6fe1c428…` until late Sep 2026; `0a88c894…` from ~10-05, when upstream began
+passing `--db-high-size 500000 --db-low-size 100000` itself but **kept `--db-enable-archive`**. Ours
+(200k/50k, no archive) is still the stricter of the two, so keep the override; upstream's
+400k-row archive insert would probably fit in 4 GiB now, which makes retiring it an option, not a need.
 
 Diagnostic tell if it ever regresses: `du -sh state/hat/` over a few hundred MB, or any
 `syslog.db.NNNN` archive files at all (with `--db-enable-archive` dropped there should be none).
@@ -982,7 +1019,9 @@ next 08:00 run carries on where this one stopped.
   process lives. A run is dead-and-stuck only if `ps -eo pid,args | grep subtitle_translat[e]`
   shows a process **and** the log has not moved for hours **and** no `claude-cli` container is
   running.
-- Rising `failures`. The recurring error shape is `sent 150 blocks, missing [...]` — the model
+- Rising `failures` (11 on 09-22 → 20 on 10-05). Two shapes: `copied N/M` (the model returned
+  N cues unchanged — untranslated — and the chunk was rejected), and the older one below.
+  The recurring error shape is `sent 150 blocks, missing [...]` — the model
   dropped cues from a chunk. A few are normal (the script retries); a jump means the `[N]`-block
   protocol is degrading and `CHUNK_CUES` (150) may need lowering. Memory `subtitle-translate`.
 - Auth: if the log shows the Claude CLI failing to start, `CLAUDE_CODE_OAUTH_TOKEN` in `.env` has
@@ -1016,7 +1055,7 @@ three: **(a)** did each job run, and run cleanly · **(b)** is DSM still configu
 RE="^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:,.]+ +\[?(ERROR|CRITICAL)\]?( |$)"
 SINCE=$(date -d "-30 days" +%F)                              # audit window, computed — nothing to edit
 RETIRED=" ptp_bp_tracker ptp_ratio_filter mentour_season_fix radarr_list_filter postgres-backup "  # folded in / replaced
-ONEOFF=" btrfs-balance media-cold-copy tubesync_target_schedule_pin "   # hand-run, no task, expected to go stale
+ONEOFF=" btrfs-balance media-cold-copy tubesync_target_schedule_pin oj_fr_oneoff "   # hand-run, no task, expected to go stale
 NOW=$(date +%s)
 for p in $(sudo -n sh -c "ls -1 /volume2/docker-ssd/logs/*.log" | sed "s|.*/||; s|\.log$||" \
            | grep -vE "^icloudpd-sync-[0-9]{8}$|^space_cleanup_needs_manual$"); do
@@ -1033,7 +1072,8 @@ done'
 
 `[one-off]` logs were written by hand-run jobs from the September 2026 disk swap (a btrfs
 rebalance, a `/volume1` cold copy that was deliberately interrupted, a one-time tubesync schedule
-pin). They have no script in the repo and no DSM task; a stale age on them is correct.
+pin), plus `oj_fr_oneoff` (2026-09-30, a hand-run French translation of *O.J.: Made in America*
+part 4). They have no script in the repo and no DSM task; a stale age on them is correct.
 
 Three traps this command exists to avoid:
 
@@ -1409,47 +1449,47 @@ Rules for the report:
   named existing skill (`/tubesync-prioritize`, `/ptp-dead-torrents`) when its trigger condition
   is clearly met.
 
-## 15. Baseline (recorded 2026-09-22)
+## 15. Baseline (recorded 2026-10-05)
 
 Compare against this; if the stack has legitimately moved on, update these numbers. The first
 baseline (2026-08-06) is kept below the table where a trend needs its "before" value.
 
 | Signal | Value |
 |---|---|
-| Containers running | 32 (+ transient `claude-cli` one-shots). jellystat retired 2026-09-22 |
-| Restart counts / exited | 0 / none. Log drivers: all `json-file` |
-| `/volume1` · `/volume2` | **61 % of 37T** (was 90 % of 27T before the Sep 2026 disk swap) · 8 % of 1.8T |
+| Containers running | 32 (+ transient `claude-cli` one-shots, which sit on the `db` log driver) |
+| Restart counts / exited | 0 / none. Log drivers: all compose services `json-file` |
+| `/volume1` · `/volume2` | **62 % of 37T** (61 % on 09-22; was 90 % of 27T before the Sep 2026 disk swap) · 7 % of 1.8T |
 | RAID | md2 `[6/6] [UUUUUU]` · md4 `[3/3] [UUU]` |
-| Mem · swap · load | 4.8/31 Gi · 0.45/20 Gi · CPU 0.19 |
-| VPN exit | NL, AS49453 Global Layer, 213.152.161.153 (the /24 rotates; the ASN is the check) |
-| Deluge | 1524 torrents, **all Seeding**, 0 Error, 2 tracker-Error, incoming=1, tun0/tun0, port 55364 (seed budget trimmed it from 1898) |
-| PTP | ratio 2.4969 (falling from 2.69 on 09-14 by design — list backfill), up 2990 / down 1198 GiB, **BP 16.97 M at 188.6k/day**, leak covered |
-| autobrr filters | 1 **absent** (retired) · 2 disabled · 3 disabled. Newest stored release 2026-09-13 |
+| Mem · swap · load | 5.3/31 Gi · 2.3/20 Gi · CPU 1.29 (subtitle_translate running) |
+| VPN exit | NL, AS49453 Global Layer, 213.152.187.253 (the IP rotates; the ASN is the check) |
+| Deluge | 1481 torrents, 1480 Seeding + 1 Downloading, 0 Error, 3 tracker-Error, incoming=1, tun0/tun0, port 55364 |
+| PTP | ratio **2.2150** (2.4969 on 09-22, falling by design — list backfill), up 3025.82 / down 1366.02 GiB, **BP 19.54 M at 192.5k/day**, leak covered. At this pace 2.0 is ~2 weeks of backfill away; the purchase step then takes over |
+| autobrr filters | 1 **absent** (retired) · 2 disabled · 3 disabled |
 | autobrr lifetime | total 3774 · push_approved 3524 · push_error 282 (all June 2026, unchanged) · filter_rejected 0 |
-| autobrr IRC | PTP connected+healthy, #ptp-announce monitored, 75 announces / 4000 log lines (log was ~1 h old) |
-| Radarr / Sonarr / Lidarr / Prowlarr health | `[]` ×4 |
-| Radarr history · queue | 11625 lifetime · 1 queued (manual-import block) |
-| Sonarr history · queue | 4551 lifetime, last import 2026-09-21 · 0 queued |
-| Prowlarr backed-off indexers | 0. Busiest: Nyaa 427 q, PTP-Freeleech 336, Torrent9 324 (4 fail), TPB 297 — all < 1.3 s |
-| Jellyfin | 12.1.0. `/Items/Counts`: **Movies 3586** (= Radarr hasFile) · Episodes 4017 · Series 157 · Youtube lib 522 |
-| Jellyfin errors (3 d) | 99 `ItemAdded` NullReference (new in 12.x) · 38 metadata saver · 19 SubtitleResolver · 0 watcher |
-| tracearr weekly `pct_tc` | 0.9 → 3.9 → 5.4 → **18.6 → 11.3 → 22.2** → 11.6 → 0 → 0 (Aug 14–Sep 11 regression, MacBook Pro Desktop client; clean since 09-12) |
-| tracearr 30 d | no zero days, 2–25 plays/day, 1–2 users · chunks 15 · 0 backfill rows |
-| tracearr audit | 189 "lost" since June; 179 = the FrancoisW zombie player (08-26 → 09-04); 3 genuine since 09-05 |
-| tubesync | 15 sources, 0 `ready`, 0 `needs_meta`, 3–4 downloads/day · guard queues all 0, auth ok, 22 cookies |
-| tubesync memory | 947 MiB / 4 GiB (23 %), CPU 0.4 % · 0 kernel OOM kills |
-| `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `d17cb919…` = repo · upstream run md5 `6fe1c428…` |
-| Laptop borg | ✅ `caffeinate` row `allowed`; hourly, last 2026-09-22 14:00 exit 0; NAS index 14:00 |
-| chezmoi | status clean; last autocommit 2026-09-21 |
-| Compose staleness | 1 of 32 (was 20 of 33 — the 09-22 Container Manager restart and json-file recreates reset most labels) |
-| Bazarr | 7 Good + `subdl` quota-limited; wanted 1134 movies / 1910 episodes · `hi_extension=sdh` |
-| AI subtitles | done 803 (+381 in 30 d), failures 11, 8-provider snapshot |
-| Database dumps | `dump-20260922.sql.gz` 170 MB, 27 retained + 6 SQLite dumps (`databases-backup.sh`). Expect ~−70 MB once jellystat's db is gone |
-| Scheduled-job errors (30 d) | all 0–4 except `subtitle_translate` 40 (worst 8 on 09-13; chunk-drop retries). 09-22 fallout from the CM restart: deluge_cleanup 4, recsys + Subtitles tasks `Error(1)` |
-| Job logs enumerated | 31 basenames (excl. rotated `icloudpd-sync-*`): 5 `RETIRED`, 3 `one-off` |
-| DSM tasks | 33 total; disabled: `Personal videos`, `Docker`, `PTP Archiver`, old `Synology C2` ×2, `Share [docker] Snapshot` |
+| autobrr IRC | PTP connected+healthy, #ptp-announce monitored, 1974 announces / 4000 log lines |
+| *arr health | Radarr: Trakt lists failed auth 09-20 → 10-05 (re-authed 10-05, token `expires` 10-12). Torrent9 backed off ×4 since 10-03 |
+| Radarr history · queue | 11888 lifetime, imports daily · 1 queued (downloading) · 5695 movies, 3712 hasFile |
+| Sonarr history · queue | 4630 lifetime, last import 2026-10-03 · 1 queued (TBA-title `importPending`). 8 Slow Horses S06 pre-air fakes guard-failed 09-21 → 10-01 |
+| Prowlarr backed-off indexers | 1 (Torrent9, since 10-03). Busiest: PTP-Freeleech 629 q, Nyaa 472, TPB 393, Torrent9 332 — all PTP/Nyaa/TPB 0 fail, < 0.2 s |
+| Jellyfin | 12.1.0. `/Items/Counts`: **Movies 3712** (= Radarr hasFile) · Episodes 4028 · Series 157 |
+| Jellyfin errors (3 d) | 53 `ItemAdded` NullReference · 18 metadata saver · 16 SubtitleResolver · 0 watcher |
+| tracearr weekly `pct_tc` | 31.3 → 11.3 → 22.2 → 11.6 → **0** (09-14) → **11.4 → 27.7** (09-21, 09-28: HEVC-10bit/EAC3 on Jellyfin Desktop, see §8); last transcode 10-03 22:00 |
+| tracearr 30 d | 1 zero day (09-26), 2–20 plays/day, 1–2 users · chunks 15 · 0 backfill rows |
+| tracearr audit | 179 = the FrancoisW zombie player (08-26 → 09-04); 3 genuine since 09-05, none since 09-18 |
+| tubesync | 15 sources, 0 `ready`, 1 `needs_meta`, 1–6 downloads/day · guard queues all 0, auth ok, **cookie-less (0 cookies)** · `theinfographicsshow` paused on purpose (`download_media=f`, last dl 09-07) |
+| tubesync memory | 582 MiB / 4 GiB (14 %), CPU 0.3 % · 0 kernel OOM kills |
+| `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `d17cb919…` = repo · upstream run md5 `0a88c894…` (changed, see §9) |
+| Laptop borg | ✅ `caffeinate` row `allowed`; hourly, last 2026-10-05 12:00 exit 0; NAS index 12:00 |
+| chezmoi | status clean; last commit 2026-10-03 |
+| Compose staleness | 23 of 32 (1 right after the 09-22 reset; watchtower re-stales it — expected) |
+| Bazarr | 8/8 Good; wanted 1048 movies / 1942 episodes · `hi_extension=sdh` |
+| AI subtitles | done 1018 (+380 in 30 d), failures 20 (11 on 09-22; new `copied N/M` shape), 8-provider snapshot |
+| Database dumps | `dump-20261005.sql.gz` 165 MB (the jellystat drop from 170 MB), 28 retained + 6 SQLite dumps |
+| Scheduled-job errors (30 d) | all 0–4 except `subtitle_translate` 42 (worst 8 on 09-13) |
+| Job logs enumerated | 32 basenames (excl. rotated `icloudpd-sync-*`): 5 `RETIRED`, 4 `one-off` |
+| DSM tasks | 31 total (the 2 disabled old `Synology C2` tasks are gone); disabled: `Personal videos`, `Docker`, `PTP Archiver`, `Share [docker] Snapshot` |
 | Scripts deployed | 30 in `/volume2/docker-ssd/scripts/` |
-| Script drift | 1 `DRIFT`, expected (`subtitle_credit_sweep.py` header) · 0 `NAS-ONLY` · 3 `LOCAL-ONLY`, all allowlisted |
+| Script drift | 1 `DRIFT`, expected (`subtitle_credit_sweep.py` header) · 0 `NAS-ONLY` |
 | Script orphans | 6, **all expected** (see §11.3) · Jellyfin scan tasks restored (`backup: none`) |
 
 First baseline, 2026-08-06, for trend context: /volume1 90 % of 27T · Deluge 1898 torrents · PTP
