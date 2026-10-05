@@ -939,7 +939,7 @@ sudo /usr/local/bin/docker run --rm --entrypoint cat ghcr.io/meeb/tubesync:lates
 ```
 
 **PASS**: the running command shows both size flags and **no** `--db-enable-archive`; the deployed
-md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run` (`d17cb919…` on 2026-10-05). The
+md5 matches `md5 -q ~/scripts/tubesync-hat-syslog-run` (`197590b2…` on 2026-10-05, after a comment-only header update; `d17cb919…` before). The
 *upstream* script read `0a88c894d30afba208c513328aebcbf1` on 2026-10-05; if that changes, read
 their new script — ours shadows it, so an upstream fix or restructure would be silently ignored.
 
@@ -1478,7 +1478,7 @@ baseline (2026-08-06) is kept below the table where a trend needs its "before" v
 | tracearr audit | 179 = the FrancoisW zombie player (08-26 → 09-04); 3 genuine since 09-05, none since 09-18 |
 | tubesync | 15 sources, 0 `ready`, 1 `needs_meta`, 1–6 downloads/day · guard queues all 0, auth ok, **cookie-less (0 cookies)** · `theinfographicsshow` paused on purpose (`download_media=f`, last dl 09-07) |
 | tubesync memory | 582 MiB / 4 GiB (14 %), CPU 0.3 % · 0 kernel OOM kills |
-| `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `d17cb919…` = repo · upstream run md5 `0a88c894…` (changed, see §9) |
+| `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `197590b2…` = repo · upstream run md5 `0a88c894…` (changed, see §9) |
 | Laptop borg | ✅ `caffeinate` row `allowed`; hourly, last 2026-10-05 12:00 exit 0; NAS index 12:00 |
 | chezmoi | status clean; last commit 2026-10-03 |
 | Compose staleness | 23 of 32 (1 right after the 09-22 reset; watchtower re-stales it — expected) |
