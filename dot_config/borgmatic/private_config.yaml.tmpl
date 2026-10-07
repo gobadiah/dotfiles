@@ -447,6 +447,13 @@ lock_wait: 5
 # If match_archives is not specified, borgmatic defaults to deriving
 # the match_archives value from archive_name_format.
 # match_archives: sh:{hostname}-*
+#
+# Pinned rather than derived from {hostname}: until 2026-10-07 the Mac's
+# HostName was unset, so it flipped between "Michaels-MacBook-Pro" and the
+# Tailscale PTR name "michaels-macbook-pro.tail833f84.ts.net", leaving two
+# archive series that prune handled separately. Borg 1.x only takes shell
+# globs (no "re:"), hence the character classes for both casings.
+match_archives: 'sh:[mM]ichaels-[mM]ac[bB]ook-[pP]ro-*'
 
 # Borg format for the files listing of the "list" action. Corresponds
 # to the "--format" flag. Defaults to "{mode} {user:6} {group:6}
