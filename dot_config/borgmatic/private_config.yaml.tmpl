@@ -37,6 +37,10 @@ source_directories:
   # Downloads
   - {{ .chezmoi.homeDir }}/Downloads
 
+  # Piano sheet music. Also synced to iCloud (Documents), but iCloud is
+  # sync, not backup: a deletion or a botched rename propagates everywhere.
+  - {{ .chezmoi.homeDir }}/Documents/Partitions
+
 # When true, source directories (and root pattern paths) must exist
 # before a backup begins. If they don't, borgmatic errors. Defaults to
 # true.
