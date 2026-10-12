@@ -1400,6 +1400,13 @@ forgotten paused player generating phantom sessions (memory `jellyfin-zombie-ses
 lost viewing. Bucket the rows by day (`grep -oE "^  2026-[0-9-]+" | sort | uniq -c`) and report
 only the genuine ones inside the audit window — 3 since 09-05 on 2026-09-22.
 
+**Before reporting a "LOST" play, look it up in tracearr by title and time** (the audit prints
+UTC). On 2026-10-12 the audit reported 16 losses that tracearr actually held: a title opening
+with a straight `"` made its `csv.reader` swallow 217 sessions. Fixed in `1250992`, but the
+lesson stands: the audit is a detector, and a sudden jump in its count is as likely an audit
+bug as a tracking one. Do not blame the VolumeLevel bug unless Jellyfin's ActivityLog shows
+a stop with **no** `is playing` start before it; an accepted start rules it out.
+
 Also confirm the History page still answers quickly — the hypertable over-chunking regression:
 
 ```bash
@@ -1475,7 +1482,7 @@ baseline (2026-08-06) is kept below the table where a trend needs its "before" v
 | Jellyfin errors (3 d) | 53 `ItemAdded` NullReference · 18 metadata saver · 16 SubtitleResolver · 0 watcher |
 | tracearr weekly `pct_tc` | 31.3 → 11.3 → 22.2 → 11.6 → **0** (09-14) → **11.4 → 27.7** (09-21, 09-28: HEVC-10bit/EAC3 on Jellyfin Desktop, see §8); last transcode 10-03 22:00 |
 | tracearr 30 d | 1 zero day (09-26), 2–20 plays/day, 1–2 users · chunks 15 · 0 backfill rows |
-| tracearr audit | 179 = the FrancoisW zombie player (08-26 → 09-04); 3 genuine since 09-05, none since 09-18 |
+| tracearr audit | 186 lifetime = 179 FrancoisW zombie (08-26 → 09-04) + 7 genuine, none after 09-08 · **0 since 09-15** (re-verified 2026-10-12 after the CSV-quote fix `1250992`) |
 | tubesync | 15 sources, 0 `ready`, 1 `needs_meta`, 1–6 downloads/day · guard queues all 0, auth ok, **cookie-less (0 cookies)** · `theinfographicsshow` paused on purpose (`download_media=f`, last dl 09-07) |
 | tubesync memory | 582 MiB / 4 GiB (14 %), CPU 0.3 % · 0 kernel OOM kills |
 | `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `197590b2…` = repo · upstream run md5 `0a88c894…` (changed, see §9) |
