@@ -178,6 +178,37 @@ function gclean() {
   git branch -r | awk '{print $1}' | egrep -v -f /dev/fd/0 <(git branch -vv | grep origin) | awk '{print $1}' | xargs git branch -D
 }
 
+# Tailscale exit node: hop to the home NAS for a site that blocks Mullvad, then back.
+# use-home-node saves the current exit node, exit-home-node restores it. Deliberately
+# never auto-picks one: `tailscale exit-node suggest` returns synology (home IP leak),
+# and the nearest Mullvad node from Japan can be Hong Kong, where Claude/ChatGPT are blocked.
+TS_HOME_NODE=synology
+TS_PREV_NODE_FILE=~/.local/state/tailscale-prev-exit-node
+
+function _ts_exit_node() {
+  tailscale status --json | jq -r '.Peer[] | select(.ExitNode) | .DNSName | rtrimstr(".")'
+}
+
+function use-home-node() {
+  local current=$(_ts_exit_node)
+  # Already home: keep the saved node instead of overwriting it with synology.
+  if [[ $current != $TS_HOME_NODE.* ]]; then
+    mkdir -p ${TS_PREV_NODE_FILE:h}
+    print -r -- "${current:-none}" > $TS_PREV_NODE_FILE
+  fi
+  tailscale set --exit-node=$TS_HOME_NODE && echo "exit via $TS_HOME_NODE: $(curl -4s --max-time 5 ifconfig.me)"
+}
+
+function exit-home-node() {
+  local prev=$(cat $TS_PREV_NODE_FILE 2>/dev/null)
+  if [[ -z $prev ]]; then
+    echo "no saved exit node; pick one from: tailscale exit-node list" >&2
+    return 1
+  fi
+  [[ $prev == none ]] && prev=
+  tailscale set --exit-node=$prev && echo "exit via ${prev:-no exit node}: $(curl -4s --max-time 5 ifconfig.me)"
+}
+
 # # powerline9k
 # POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(kubecontext dir rbenv vcs)
 # POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status root_indicator command_execution_time pyenv battery time)
