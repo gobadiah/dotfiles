@@ -41,11 +41,13 @@ source_directories:
   # sync, not backup: a deletion or a botched rename propagates everywhere.
   - {{ .chezmoi.homeDir }}/Documents/Partitions
 
-  # Claude Code per-project memory (memory/*.md) and session transcripts.
-  # Nothing else holds the memory files: chezmoi only tracks ~/.claude's
-  # CLAUDE.md, settings.json and skills. Transcripts can contain secrets
-  # echoed by commands, which is fine here because the repo is encrypted.
-  - {{ .chezmoi.homeDir }}/.claude/projects
+  # Claude Code state: per-project memory (projects/*/memory), session
+  # transcripts, prompt history, file-history; ~/.claude.json holds MCP
+  # server config. chezmoi only tracks ~/.claude's CLAUDE.md, settings.json
+  # and skills. Transcripts, history and ~/.claude.json can contain secrets,
+  # which is fine here because the repo is encrypted.
+  - {{ .chezmoi.homeDir }}/.claude
+  - {{ .chezmoi.homeDir }}/.claude.json
 
 # When true, source directories (and root pattern paths) must exist
 # before a backup begins. If they don't, borgmatic errors. Defaults to
