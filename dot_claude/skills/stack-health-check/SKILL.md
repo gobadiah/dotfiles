@@ -789,8 +789,9 @@ standalone `.js` files — they live inside the JS Injector plugin's config:
 /usr/bin/ssh synology 'F=/volume2/docker-ssd/jellyfin/config/plugins/configurations/Jellyfin.Plugin.JavaScriptInjector.xml
 sudo -n ls -l $F; sudo -n grep -oE "<(Name|Enabled)>[^<]*</(Name|Enabled)>" $F | paste - -'
 ```
-**PASS**: four entries, all `<Enabled>true</Enabled>` — Recently Watched rows · Latest ungroup
-(episodes) · Tag filter · Subtitle resync button. Present-and-enabled does not prove they
+**PASS**: all entries `<Enabled>true</Enabled>` — Recently Watched rows · Latest ungroup
+(episodes) · Tag filter · Subtitle resync button, plus (since Oct 2026) `JE tweaks` and the
+diagnostic `Home watchdog (temp)` — six in all on 2026-11-05. Present-and-enabled does not prove they
 *render* on the new version; if a Jellyfin update landed this month, say so and suggest a look
 at the home page. Memories `jellyfin-recently-watched`, `jellyfin-latest-ungroup`,
 `jellyfin-tag-filter`, `jellyfin-subfix`, `jellyfin-injected-script-stale-cache`.
@@ -1456,7 +1457,7 @@ Rules for the report:
   named existing skill (`/tubesync-prioritize`, `/ptp-dead-torrents`) when its trigger condition
   is clearly met.
 
-## 15. Baseline (recorded 2026-10-05)
+## 15. Baseline (recorded 2026-11-05)
 
 Compare against this; if the stack has legitimately moved on, update these numbers. The first
 baseline (2026-08-06) is kept below the table where a trend needs its "before" value.
@@ -1464,38 +1465,39 @@ baseline (2026-08-06) is kept below the table where a trend needs its "before" v
 | Signal | Value |
 |---|---|
 | Containers running | 32 (+ transient `claude-cli` one-shots, which sit on the `db` log driver) |
-| Restart counts / exited | 0 / none. Log drivers: all compose services `json-file` |
-| `/volume1` · `/volume2` | **62 % of 37T** (61 % on 09-22; was 90 % of 27T before the Sep 2026 disk swap) · 7 % of 1.8T |
+| Restart counts / exited | 0 / none. Log drivers: all compose services `json-file` · autoheal 0 restarts |
+| `/volume1` · `/volume2` | **63 % of 37T** (62 % on 10-05, 61 % on 09-22; was 90 % of 27T before the Sep 2026 disk swap) · 8 % of 1.8T |
 | RAID | md2 `[6/6] [UUUUUU]` · md4 `[3/3] [UUU]` |
-| Mem · swap · load | 5.3/31 Gi · 2.3/20 Gi · CPU 1.29 (subtitle_translate running) |
-| VPN exit | NL, AS49453 Global Layer, 213.152.187.253 (the IP rotates; the ASN is the check) |
-| Deluge | 1481 torrents, 1480 Seeding + 1 Downloading, 0 Error, 3 tracker-Error, incoming=1, tun0/tun0, port 55364 |
-| PTP | ratio **2.2150** (2.4969 on 09-22, falling by design — list backfill), up 3025.82 / down 1366.02 GiB, **BP 19.54 M at 192.5k/day**, leak covered. At this pace 2.0 is ~2 weeks of backfill away; the purchase step then takes over |
+| Mem · swap · load | 6.0/31 Gi · 1.4/20 Gi · CPU 0.53 |
+| VPN exit | NL, AS49453 Global Layer, 213.152.162.27 (the IP rotates; the ASN is the check) |
+| Deluge | 1466 torrents, all Seeding, 0 Error, 2 tracker-Error, incoming=1, tun0/tun0, port 55364 |
+| PTP | ratio **2.1039** (2.2150 on 10-05, falling ~0.005/day by design — list backfill), up 3146.75 / down 1495.65 GiB, **BP 26.0 M at 211.7k/day**, leak covered. ~3 weeks to 2.0; the purchase step then takes over |
 | autobrr filters | 1 **absent** (retired) · 2 disabled · 3 disabled |
 | autobrr lifetime | total 3774 · push_approved 3524 · push_error 282 (all June 2026, unchanged) · filter_rejected 0 |
-| autobrr IRC | PTP connected+healthy, #ptp-announce monitored, 1974 announces / 4000 log lines |
-| *arr health | Radarr: Trakt lists failed auth 09-20 → 10-05 (re-authed 10-05, token `expires` 10-12). Torrent9 backed off ×4 since 10-03 |
-| Radarr history · queue | 11888 lifetime, imports daily · 1 queued (downloading) · 5695 movies, 3712 hasFile |
-| Sonarr history · queue | 4630 lifetime, last import 2026-10-03 · 1 queued (TBA-title `importPending`). 8 Slow Horses S06 pre-air fakes guard-failed 09-21 → 10-01 |
-| Prowlarr backed-off indexers | 1 (Torrent9, since 10-03). Busiest: PTP-Freeleech 629 q, Nyaa 472, TPB 393, Torrent9 332 — all PTP/Nyaa/TPB 0 fail, < 0.2 s |
-| Jellyfin | 12.1.0. `/Items/Counts`: **Movies 3712** (= Radarr hasFile) · Episodes 4028 · Series 157 |
-| Jellyfin errors (3 d) | 53 `ItemAdded` NullReference · 18 metadata saver · 16 SubtitleResolver · 0 watcher |
-| tracearr weekly `pct_tc` | 31.3 → 11.3 → 22.2 → 11.6 → **0** (09-14) → **11.4 → 27.7** (09-21, 09-28: HEVC-10bit/EAC3 on Jellyfin Desktop, see §8); last transcode 10-03 22:00 |
-| tracearr 30 d | 1 zero day (09-26), 2–20 plays/day, 1–2 users · chunks 15 · 0 backfill rows |
-| tracearr audit | 186 lifetime = 179 FrancoisW zombie (08-26 → 09-04) + 7 genuine, none after 09-08 · **0 since 09-15** (re-verified 2026-10-12 after the CSV-quote fix `1250992`) |
-| tubesync | 15 sources, 0 `ready`, 1 `needs_meta`, 1–6 downloads/day · guard queues all 0, auth ok, **cookie-less (0 cookies)** · `theinfographicsshow` paused on purpose (`download_media=f`, last dl 09-07) |
-| tubesync memory | 582 MiB / 4 GiB (14 %), CPU 0.3 % · 0 kernel OOM kills |
-| `state/hat/` | 63 MB, single `syslog.db`, no archives · override md5 `197590b2…` = repo · upstream run md5 `0a88c894…` (changed, see §9) |
-| Laptop borg | ✅ `caffeinate` row `allowed`; hourly, last 2026-10-05 12:00 exit 0; NAS index 12:00 |
-| chezmoi | status clean; last commit 2026-10-03 |
-| Compose staleness | 23 of 32 (1 right after the 09-22 reset; watchtower re-stales it — expected) |
-| Bazarr | 8/8 Good; wanted 1048 movies / 1942 episodes · `hi_extension=sdh` |
-| AI subtitles | done 1018 (+380 in 30 d), failures 20 (11 on 09-22; new `copied N/M` shape), 8-provider snapshot |
-| Database dumps | `dump-20261005.sql.gz` 165 MB (the jellystat drop from 170 MB), 28 retained + 6 SQLite dumps |
-| Scheduled-job errors (30 d) | all 0–4 except `subtitle_translate` 42 (worst 8 on 09-13) |
-| Job logs enumerated | 32 basenames (excl. rotated `icloudpd-sync-*`): 5 `RETIRED`, 4 `one-off` |
-| DSM tasks | 31 total (the 2 disabled old `Synology C2` tasks are gone); disabled: `Personal videos`, `Docker`, `PTP Archiver`, `Share [docker] Snapshot` |
-| Scripts deployed | 30 in `/volume2/docker-ssd/scripts/` |
+| autobrr IRC | PTP connected+healthy, #ptp-announce monitored, 1955 announces / 4000 log lines |
+| *arr health | all four `[]`. Trakt lists 17/18 `expires` 11-09, test HTTP 200 |
+| Radarr history · queue | 12110 lifetime, imports most days · 0 queued · 5721 movies, 3799 hasFile |
+| Sonarr history · queue | 4741 lifetime, last import 2026-11-01 (VIVANT) · 0 queued · 206 missing-monitored, none aired in 2026 |
+| Prowlarr backed-off indexers | 0. Busiest: PTP-Freeleech 283 q, Nyaa 224, TPB 219, Torrent9 170 (2 fail, 777 ms) — PTP/Nyaa/TPB 0 fail, < 0.2 s; MyAnonamouse 2.6 s avg |
+| Jellyfin | **12.4.0**. `/Items/Counts`: **Movies 3799** (= Radarr hasFile) · Episodes 4105 · Series 160 |
+| Jellyfin errors (3 d) | 22 `ItemAdded` NullReference · 37 metadata saver · 23 SubtitleResolver · 0 watcher. New: ~300 `Invalid token` on `/socket` (one FR IP 37.67.107.247, Chrome + jellyfin-desktop holding a revoked token) · ~280 OMDb JSON errors, all Rick and Morty S06 |
+| JS Injector | 6 entries enabled: the 4 in §8 + `JE tweaks` + `Home watchdog (temp)` (diagnostic, memory `jellyfin-enhanced-plugin`) |
+| tracearr weekly `pct_tc` | 0 (10-05) → 2.9 → **16.4 → 28.1 → 16.0** (10-19 → 11-02): all Michael remote from Japan, H.264 8-bit ~9.3 Mbit/s + EAC3 5.1 capped to 720p/480p (bitrate cap, not codec); Chromecast 7/7 transcoded. Last transcode 11-04 14:20 |
+| tracearr 30 d | one 3-day zero run 10-15 → 10-17 (real absence: Jellyfin ActivityLog also 0), 1–40 plays/day, 1–3 users · chunks 15 · 0 backfill rows |
+| tracearr audit | genuine losses **0 since 09-08**. FrancoisW zombie recurred 10-20 → 10-22 (18 rows, *The Dinosaurs – Rise*, Chrome) |
+| tubesync | 17 sources, 0 `ready`, 0 `needs_meta`, 2–8 downloads/day (zero 10-27 → 10-29, the limited-pool fork wedge fixed 11-01) · guard queues all 0, auth ok, **cookie-less (0 cookies)** · `theinfographicsshow` paused on purpose |
+| tubesync memory | 1.47 GiB / 4 GiB (37 %), CPU 0.4 % · 0 kernel OOM kills |
+| `state/hat/` | 69 MB, single `syslog.db`, no archives · override md5 `197590b2…` = repo · upstream run md5 `0a88c894…` (unchanged since 10-05) |
+| Laptop borg | ✅ `caffeinate` row `allowed`; hourly, last 2026-11-05 11:00 JST exit 0; NAS index 03:01 CET |
+| chezmoi | status clean; last commit 2026-10-30 |
+| Compose staleness | 23 recreates pending in `--dry-run` (watchtower re-stales — expected) |
+| Bazarr | 8/8 Good; wanted **682 movies** (1048 on 10-05) / 1972 episodes · `hi_extension=sdh` |
+| AI subtitles | done 1523 (+502 in 30 d), failures 23 (17 × `sent 150 blocks, missing`), 8-provider snapshot |
+| Database dumps | `dump-20261105.sql.gz` 171 MB, 32 retained + 6 SQLite dumps |
+| Scheduled-job errors (30 d) | all 0 except `subtitle_translate` 80 (42 on 10-05; worst 4/day, a trickle) |
+| Job logs enumerated | 34 basenames (excl. rotated `icloudpd-sync-*`): 5 `RETIRED`, 4 `one-off` (new since 10-05: `nginx-jellyfin-access`, `tailscale_upgrade`) |
+| DSM tasks | 29 total (the disabled `Personal videos` and `Docker` tasks are gone); disabled: `PTP Archiver`, `Share [docker] Snapshot` |
+| Scripts deployed | 31 in `/volume2/docker-ssd/scripts/` · `ts_overrides.py` md5 = repo |
 | Script drift | 1 `DRIFT`, expected (`subtitle_credit_sweep.py` header) · 0 `NAS-ONLY` |
 | Script orphans | 6, **all expected** (see §11.3) · Jellyfin scan tasks restored (`backup: none`) |
 

@@ -851,7 +851,7 @@
 			<key>Disable Window Resizing</key>
 			<true/>
 			<key>Flashing Bell</key>
-			<false/>
+			<true/>
 			<key>Foreground Color</key>
 			<dict>
 				<key>Alpha Component</key>
@@ -1298,7 +1298,7 @@
 			<key>Vertical Spacing</key>
 			<real>1</real>
 			<key>Visual Bell</key>
-			<true/>
+			<false/>
 			<key>Window Type</key>
 			<integer>0</integer>
 			<key>Working Directory</key>
@@ -1626,7 +1626,7 @@
 			<key>Dynamic Profile Parent Name</key>
 			<string>Default</string>
 			<key>Flashing Bell</key>
-			<false/>
+			<true/>
 			<key>Foreground Color</key>
 			<dict>
 				<key>Alpha Component</key>
@@ -2079,7 +2079,7 @@
 			<key>Vertical Spacing</key>
 			<real>1</real>
 			<key>Visual Bell</key>
-			<true/>
+			<false/>
 			<key>Window Type</key>
 			<integer>0</integer>
 			<key>Working Directory</key>
@@ -2409,7 +2409,7 @@
 			<key>Dynamic Profile Parent Name</key>
 			<string>Default</string>
 			<key>Flashing Bell</key>
-			<false/>
+			<true/>
 			<key>Foreground Color</key>
 			<dict>
 				<key>Alpha Component</key>
@@ -2875,7 +2875,7 @@
 			<key>Vertical Spacing</key>
 			<real>1</real>
 			<key>Visual Bell</key>
-			<true/>
+			<false/>
 			<key>Window Type</key>
 			<integer>0</integer>
 			<key>Working Directory</key>
@@ -3205,7 +3205,7 @@
 			<key>Dynamic Profile Parent Name</key>
 			<string>Default</string>
 			<key>Flashing Bell</key>
-			<false/>
+			<true/>
 			<key>Foreground Color</key>
 			<dict>
 				<key>Alpha Component</key>
@@ -3671,7 +3671,7 @@
 			<key>Vertical Spacing</key>
 			<real>1</real>
 			<key>Visual Bell</key>
-			<true/>
+			<false/>
 			<key>Window Type</key>
 			<integer>0</integer>
 			<key>Working Directory</key>
@@ -3731,34 +3731,33 @@
 	<false/>
 	<key>Workgroups</key>
 	<data>
-	W3sidW5pcXVlSWRlbnRpZmllciI6ImJ1aWx0aW4uY2xhdWRlQ29kZSIsIm5hbWUiOiJD
-	bGF1ZGUgQ29kZSIsInNlc3Npb25zIjpbeyJjb21tYW5kIjoiIiwibW9kZSI6InJlZ3Vs
-	YXIiLCJraW5kIjp7ImtpbmQiOiJyb290In0sInBlckZpbGVDb21tYW5kIjoiIiwidXJs
-	U3RyaW5nIjoiIiwidW5pcXVlSWRlbnRpZmllciI6ImJ1aWx0aW4uY2xhdWRlQ29kZS5t
-	YWluIiwidG9vbGJhckl0ZW1zIjpbeyJraW5kIjoibW9kZVN3aXRjaGVyIn0seyJraW5k
-	IjoiZ2l0U3RhdHVzIn0seyJraW5kIjoiYXV0b1JlcXVlc3RSZXZpZXdXaGVuSWRsZSJ9
-	XSwiZGlzcGxheU5hbWUiOiJDaGF0In0seyJjb21tYW5kIjoiZ2l0IGRpZmZ0b29sIC15
-	IC14IHZpbWRpZmYgXFwoZ2l0QmFzZSkiLCJtb2RlIjoiZGlmZiIsImtpbmQiOnsia2lu
-	ZCI6InBlZXIifSwicGVyRmlsZUNvbW1hbmQiOiJnaXQgZGlmZnRvb2wgLXkgLXggdmlt
-	ZGlmZiBcXChnaXRCYXNlKSAtLSBcXChmaWxlKSIsInVybFN0cmluZyI6IiIsInVuaXF1
-	ZUlkZW50aWZpZXIiOiJidWlsdGluLmNsYXVkZUNvZGUuZGlmZiIsInRvb2xiYXJJdGVt
-	cyI6W3sia2luZCI6Im1vZGVTd2l0Y2hlciJ9LHsia2luZCI6ImNoYW5nZWRGaWxlU2Vs
-	ZWN0b3IifSx7ImtpbmQiOiJnaXRCYXNlU2VsZWN0b3IifSx7InJlbG9hZFNob3J0Y3V0
-	Ijp7InNlcmlhbGl6ZWQiOiIweDcyLTB4MTAwMDAwLTB4ZiJ9LCJmb3J3YXJkU2hvcnRj
-	dXQiOnsic2VyaWFsaXplZCI6IjB4ZjcwMy0weDM0MDAwMC0weDdjIn0sImJhY2tTaG9y
-	dGN1dCI6eyJzZXJpYWxpemVkIjoiMHhmNzAyLTB4MzQwMDAwLTB4N2IifSwia2luZCI6
-	Im5hdmlnYXRpb24ifV0sImRpc3BsYXlOYW1lIjoiRGlmZiIsInBhcmVudElEIjoiYnVp
-	bHRpbi5jbGF1ZGVDb2RlLm1haW4ifSx7ImNvbW1hbmQiOiJjbGF1ZGUgXFwoY29kZVJl
-	dmlld1Byb21wdCkgLS1hcHBlbmQtc3lzdGVtLXByb21wdC1maWxlICdcXChjb2RlUmV2
-	aWV3U3lzdGVtUHJvbXB0RmlsZSknIC0tc2V0dGluZ3MgJ1xcKGl0ZXJtMi5hcHBCdW5k
-	bGVQYXRoKVwvQ29udGVudHNcL1Jlc291cmNlc1wvY29kZS1yZXZpZXctc2V0dGluZ3Mu
-	dHh0JyIsIm1vZGUiOiJjb2RlUmV2aWV3Iiwia2luZCI6eyJraW5kIjoicGVlciJ9LCJw
-	ZXJGaWxlQ29tbWFuZCI6IiIsInVybFN0cmluZyI6IiIsInVuaXF1ZUlkZW50aWZpZXIi
-	OiJidWlsdGluLmNsYXVkZUNvZGUucmV2aWV3IiwidG9vbGJhckl0ZW1zIjpbeyJraW5k
-	IjoibW9kZVN3aXRjaGVyIn0seyJraW5kIjoicmVsb2FkIiwic2hvcnRjdXQiOnsic2Vy
-	aWFsaXplZCI6IjB4NzItMHgxMDAwMDAtMHhmIn19LHsia2luZCI6ImF1dG9TZW5kQ2xp
-	cHBpbmdzV2hlbklkbGUifV0sImRpc3BsYXlOYW1lIjoiQ29kZSBSZXZpZXciLCJwYXJl
-	bnRJRCI6ImJ1aWx0aW4uY2xhdWRlQ29kZS5tYWluIn1dfV0=
+	W3sidW5pcXVlSWRlbnRpZmllciI6ImJ1aWx0aW4uY2xhdWRlQ29kZSIsInNlc3Npb25z
+	IjpbeyJ1cmxTdHJpbmciOiIiLCJkaXNwbGF5TmFtZSI6IkNoYXQiLCJtb2RlIjoicmVn
+	dWxhciIsInVuaXF1ZUlkZW50aWZpZXIiOiJidWlsdGluLmNsYXVkZUNvZGUubWFpbiIs
+	InRvb2xiYXJJdGVtcyI6W3sia2luZCI6Im1vZGVTd2l0Y2hlciJ9LHsia2luZCI6Imdp
+	dFN0YXR1cyJ9LHsia2luZCI6ImF1dG9SZXF1ZXN0UmV2aWV3V2hlbklkbGUifV0sImNv
+	bW1hbmQiOiIiLCJwZXJGaWxlQ29tbWFuZCI6IiIsImtpbmQiOnsia2luZCI6InJvb3Qi
+	fX0seyJ1cmxTdHJpbmciOiIiLCJwYXJlbnRJRCI6ImJ1aWx0aW4uY2xhdWRlQ29kZS5t
+	YWluIiwiZGlzcGxheU5hbWUiOiJEaWZmIiwibW9kZSI6ImRpZmYiLCJ1bmlxdWVJZGVu
+	dGlmaWVyIjoiYnVpbHRpbi5jbGF1ZGVDb2RlLmRpZmYiLCJ0b29sYmFySXRlbXMiOlt7
+	ImtpbmQiOiJtb2RlU3dpdGNoZXIifSx7ImtpbmQiOiJjaGFuZ2VkRmlsZVNlbGVjdG9y
+	In0seyJraW5kIjoiZ2l0QmFzZVNlbGVjdG9yIn0seyJyZWxvYWRTaG9ydGN1dCI6eyJz
+	ZXJpYWxpemVkIjoiMHg3Mi0weDEwMDAwMC0weGYifSwiZm9yd2FyZFNob3J0Y3V0Ijp7
+	InNlcmlhbGl6ZWQiOiIweGY3MDMtMHgzNDAwMDAtMHg3YyJ9LCJraW5kIjoibmF2aWdh
+	dGlvbiIsImJhY2tTaG9ydGN1dCI6eyJzZXJpYWxpemVkIjoiMHhmNzAyLTB4MzQwMDAw
+	LTB4N2IifX1dLCJjb21tYW5kIjoiZ2l0IGRpZmZ0b29sIC15IC14IHZpbWRpZmYgXFwo
+	Z2l0QmFzZSkiLCJwZXJGaWxlQ29tbWFuZCI6ImdpdCBkaWZmdG9vbCAteSAteCB2aW1k
+	aWZmIFxcKGdpdEJhc2UpIC0tIFxcKGZpbGUpIiwia2luZCI6eyJraW5kIjoicGVlciJ9
+	fSx7InVybFN0cmluZyI6IiIsInBhcmVudElEIjoiYnVpbHRpbi5jbGF1ZGVDb2RlLm1h
+	aW4iLCJkaXNwbGF5TmFtZSI6IkNvZGUgUmV2aWV3IiwibW9kZSI6ImNvZGVSZXZpZXci
+	LCJ1bmlxdWVJZGVudGlmaWVyIjoiYnVpbHRpbi5jbGF1ZGVDb2RlLnJldmlldyIsInRv
+	b2xiYXJJdGVtcyI6W3sia2luZCI6Im1vZGVTd2l0Y2hlciJ9LHsic2hvcnRjdXQiOnsi
+	c2VyaWFsaXplZCI6IjB4NzItMHgxMDAwMDAtMHhmIn0sImtpbmQiOiJyZWxvYWQifSx7
+	ImtpbmQiOiJhdXRvU2VuZENsaXBwaW5nc1doZW5JZGxlIn1dLCJjb21tYW5kIjoiY2xh
+	dWRlIFxcKGNvZGVSZXZpZXdQcm9tcHQpIC0tYXBwZW5kLXN5c3RlbS1wcm9tcHQtZmls
+	ZSAnXFwoY29kZVJldmlld1N5c3RlbVByb21wdEZpbGUpJyAtLXNldHRpbmdzICdcXChj
+	b2RlUmV2aWV3U2V0dGluZ3NGaWxlKSciLCJwZXJGaWxlQ29tbWFuZCI6IiIsImtpbmQi
+	Onsia2luZCI6InBlZXIifX1dLCJuYW1lIjoiQ2xhdWRlIENvZGUifV0=
 	</data>
 	<key>findMode_iTerm</key>
 	<integer>0</integer>
